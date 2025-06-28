@@ -26,7 +26,7 @@ CHAT_HANDLE = "@empowertourschat"  # Telegram group handle
 w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL))
 account = Account.from_key(PRIVATE_KEY)
 
-# EmpowerTours contract ABI (same as previous, abbreviated for brevity)
+# EmpowerTours contract ABI
 CONTRACT_ABI = [
     {
         "inputs": [
@@ -37,23 +37,94 @@ CONTRACT_ABI = [
         "type": "constructor"
     },
     {
-        "anonymous": false,
+        "anonymous": False,
         "inputs": [
-            {"indexed": true, "internalType": "uint256", "name": "locationId", "type": "uint256"},
-            {"indexed": true, "internalType": "address", "name": "creator", "type": "address"},
-            {"indexed": false, "internalType": "string", "name": "name", "type": "string"},
-            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+            {"indexed": True, "internalType": "address", "name": "commenter", "type": "address"},
+            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "CommentAdded",
+        "type": "event"
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"indexed": True, "internalType": "address", "name": "creator", "type": "address"},
+            {"indexed": False, "internalType": "string", "name": "name", "type": "string"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
         ],
         "name": "ClimbingLocationCreated",
         "type": "event"
     },
-    # Other events and functions as in previous artifact
     {
-        "inputs": [],
-        "name": "createProfile",
-        "outputs": [],
-        "stateMutability": "payable",
-        "type": "function"
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+            {"indexed": True, "internalType": "address", "name": "author", "type": "address"},
+            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "JournalEntryAdded",
+        "type": "event"
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"indexed": True, "internalType": "address", "name": "buyer", "type": "address"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "LocationPurchased",
+        "type": "event"
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "address", "name": "previousOwner", "type": "address"},
+            {"indexed": True, "internalType": "address", "name": "newOwner", "type": "address"}
+        ],
+        "name": "OwnershipTransferred",
+        "type": "event"
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "address", "name": "user", "type": "address"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "ProfileCreated",
+        "type": "event"
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "entryFee", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "startTime", "type": "uint256"}
+        ],
+        "name": "TournamentCreated",
+        "type": "event"
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": True, "internalType": "address", "name": "winner", "type": "address"},
+            {"indexed": False, "internalType": "uint256", "name": "pot", "type": "uint256"}
+        ],
+        "name": "TournamentEnded",
+        "type": "event"
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": True, "internalType": "address", "name": "participant", "type": "address"}
+        ],
+        "name": "TournamentJoined",
+        "type": "event"
     },
     {
         "inputs": [
@@ -88,12 +159,10 @@ CONTRACT_ABI = [
         "type": "function"
     },
     {
-        "inputs": [
-            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
-        ],
-        "name": "purchaseClimbingLocation",
+        "inputs": [],
+        "name": "createProfile",
         "outputs": [],
-        "stateMutability": "nonpayable",
+        "stateMutability": "payable",
         "type": "function"
     },
     {
@@ -101,15 +170,6 @@ CONTRACT_ABI = [
             {"internalType": "uint256", "name": "entryFee", "type": "uint256"}
         ],
         "name": "createTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"}
-        ],
-        "name": "joinTournament",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
@@ -135,6 +195,53 @@ CONTRACT_ABI = [
     },
     {
         "inputs": [
+            {"internalType": "uint256", "name": "entryId", "type": "uint256"}
+        ],
+        "name": "getCommentCount",
+        "outputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "getJournalEntryCount",
+        "outputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "getTournamentCount",
+        "outputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"}
+        ],
+        "name": "joinTournament",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
+        ],
+        "name": "purchaseClimbingLocation",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
             {"internalType": "uint256", "name": "", "type": "uint256"}
         ],
         "name": "climbingLocations",
@@ -152,7 +259,43 @@ CONTRACT_ABI = [
     },
     {
         "inputs": [],
-        "name": "profileFee",
+        "name": "commentFee",
+        "outputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"},
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "name": "journalComments",
+        "outputs": [
+            {"internalType": "address", "name": "commenter", "type": "address"},
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "name": "journalEntries",
+        "outputs": [
+            {"internalType": "address", "name": "author", "type": "address"},
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "journalReward",
         "outputs": [
             {"internalType": "uint256", "name": "", "type": "uint256"}
         ],
@@ -161,9 +304,9 @@ CONTRACT_ABI = [
     },
     {
         "inputs": [],
-        "name": "commentFee",
+        "name": "legacyWallet",
         "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
+            {"internalType": "address", "name": "", "type": "address"}
         ],
         "stateMutability": "view",
         "type": "function"
@@ -175,6 +318,76 @@ CONTRACT_ABI = [
             {"internalType": "uint256", "name": "", "type": "uint256"}
         ],
         "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "owner",
+        "outputs": [
+            {"internalType": "address", "name": "", "type": "address"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "", "type": "address"}
+        ],
+        "name": "profiles",
+        "outputs": [
+            {"internalType": "bool", "name": "exists", "type": "bool"},
+            {"internalType": "uint256", "name": "journalCount", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "profileFee",
+        "outputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "renounceOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "name": "tournaments",
+        "outputs": [
+            {"internalType": "uint256", "name": "entryFee", "type": "uint256"},
+            {"internalType": "uint256", "name": "totalPot", "type": "uint256"},
+            {"internalType": "address", "name": "winner", "type": "address"},
+            {"internalType": "bool", "name": "isActive", "type": "bool"},
+            {"internalType": "uint256", "name": "startTime", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "toursToken",
+        "outputs": [
+            {"internalType": "contract IERC20", "name": "", "type": "address"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "newOwner", "type": "address"}
+        ],
+        "name": "transferOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function"
     }
 ]
