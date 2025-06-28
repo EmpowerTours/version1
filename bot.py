@@ -1,3 +1,4 @@
+```python
 import os
 import asyncio
 import logging
@@ -21,6 +22,21 @@ TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
 OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
 LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
 CHAT_HANDLE = "@empowertourschat"  # Telegram group handle
+
+# Validate environment variables
+required_env_vars = {
+    "TELEGRAM_TOKEN": BOT_TOKEN,
+    "MONAD_RPC_URL": MONAD_RPC_URL,
+    "PRIVATE_KEY": PRIVATE_KEY,
+    "CONTRACT_ADDRESS": CONTRACT_ADDRESS,
+    "TOURS_TOKEN_ADDRESS": TOURS_TOKEN_ADDRESS,
+    "OWNER_ADDRESS": OWNER_ADDRESS,
+    "LEGACY_ADDRESS": LEGACY_ADDRESS
+}
+for var_name, var_value in required_env_vars.items():
+    if not var_value:
+        logger.error(f"Missing environment variable: {var_name}")
+        raise ValueError(f"Environment variable {var_name} is not set")
 
 # Connect to Monad testnet
 w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL))
@@ -488,7 +504,7 @@ async def tutorial(update: Update, context):
         "🌟 Welcome to EmpowerTours Tutorial! 🌟\n\n"
         "Let's get you climbing on the Monad blockchain! Follow these steps:\n\n"
         "1️⃣ **Create a Monad Wallet**:\n"
-        "   - Download a wallet like MetaMask[](https://metamask.io).\n"
+        "   - Download a wallet like MetaMask<a href="https://metamask.io" target="_blank" rel="noopener noreferrer nofollow"></a>.\n"
         "   - Set up a new wallet and securely save your seed phrase.\n"
         "   - Add the Monad testnet to MetaMask:\n"
         "     - Network Name: Monad Testnet\n"
