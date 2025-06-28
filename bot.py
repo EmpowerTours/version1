@@ -1,3 +1,4 @@
+```python
 import os
 import asyncio
 import logging
@@ -483,9 +484,9 @@ async def start(update: Update, context):
             )
         return
     await message.reply_text(
-        "Welcome to EmpowerTours, your rock climbing adventure hub! 🌄\n"
-        "New here? Start with /tutorial to set up your Monad wallet and profile.\n"
-        "Ready to climb? Join our community at https://t.me/empowertourschat! 🪨"
+        """Welcome to EmpowerTours, your rock climbing adventure hub! 🌄
+New here? Start with /tutorial to set up your Monad wallet and profile.
+Ready to climb? Join our community at https://t.me/empowertourschat! 🪨"""
     )
 
 async def tutorial(update: Update, context):
@@ -499,33 +500,37 @@ async def tutorial(update: Update, context):
             )
         return
 
-    tutorial_text = (
-        "🌟 Welcome to EmpowerTours Tutorial! 🌟\n\n"
-        "Let's get you climbing on the Monad blockchain! Follow these steps:\n\n"
-        "1️⃣ **Create a Monad Wallet**:\n"
-        "   - Download a wallet like MetaMask<a href="https://metamask.io" target="_blank" rel="noopener noreferrer nofollow"></a>.\n"
-        "   - Set up a new wallet and securely save your seed phrase.\n"
-        "   - Add the Monad testnet to MetaMask:\n"
-        "     - Network Name: Monad Testnet\n"
-        "     - RPC URL: https://testnet-rpc.monad.xyz\n"
-        "     - Chain ID: 10143\n"
-        "     - Currency: MON\n"
-        "   - Get testnet $MON from the faucet: https://testnet.monad.xyz/faucet\n\n"
-        "2️⃣ **Create Your Profile**:\n"
-        "   - Use /createprofile <your_wallet_address> (e.g., /createprofile 0x123...).\n"
-        "   - Send 1 $MON to join the EmpowerTours community!\n\n"
-        "3️⃣ **Explore the App**:\n"
-        "   - /journal <description>: Log your climbs and earn $TOURS (send a photo after).\n"
-        "   - /buildaclimb <name> <difficulty>: Create a climbing location (10 $TOURS).\n"
-        "   - /purchaseclimb <location_id>: Buy access to climbs.\n"
-        "   - /createtournament <entry_fee>: Start a tournament to win big!\n"
-        "   - /findaclimb: Discover climbing spots worldwide.\n"
-        "   - /help: See all commands.\n\n"
-        "4️⃣ **Join the Community**:\n"
-        "   - Chat with climbers at https://t.me/empowertourschat.\n"
-        "   - Share your adventures and compete in tournaments!\n\n"
-        "Need help? Just ask! Ready to start? Try /createprofile now! 🪨✨"
-    )
+    tutorial_text = """🌟 Welcome to EmpowerTours Tutorial! 🌟
+
+Let's get you climbing on the Monad blockchain! Follow these steps:
+
+1️⃣ **Create a Monad Wallet**:
+   - Download a wallet like MetaMask<a href="https://metamask.io" target="_blank" rel="noopener noreferrer nofollow"></a>.
+   - Set up a new wallet and securely save your seed phrase.
+   - Add the Monad testnet to MetaMask:
+     - Network Name: Monad Testnet
+     - RPC URL: https://testnet-rpc.monad.xyz
+     - Chain ID: 10143
+     - Currency: MON
+   - Get testnet $MON from the faucet: https://testnet.monad.xyz/faucet
+
+2️⃣ **Create Your Profile**:
+   - Use /createprofile <your_wallet_address> (e.g., /createprofile 0x123...).
+   - Send 1 $MON to join the EmpowerTours community!
+
+3️⃣ **Explore the App**:
+   - /journal <description>: Log your climbs and earn $TOURS (send a photo after).
+   - /buildaclimb <name> <difficulty>: Create a climbing location (10 $TOURS).
+   - /purchaseclimb <location_id>: Buy access to climbs.
+   - /createtournament <entry_fee>: Start a tournament to win big!
+   - /findaclimb: Discover climbing spots worldwide.
+   - /help: See all commands.
+
+4️⃣ **Join the Community**:
+   - Chat with climbers at https://t.me/empowertourschat.
+   - Share your adventures and compete in tournaments!
+
+Need help? Just ask! Ready to start? Try /createprofile now! 🪨✨"""
     await message.reply_text(tutorial_text)
 
 async def create_profile(update: Update, context):
@@ -1219,23 +1224,23 @@ async def help_command(update: Update, context):
             )
         return
 
-    help_text = (
-        "🏔️ EmpowerTours Commands 🧗‍♀️\n\n"
-        "/start - Kick off your adventure\n"
-        "/tutorial - Learn to set up your wallet and profile\n"
-        "/createprofile <wallet> - Join with 1 $MON\n"
-        "/journal <description> - Log climbs, earn $TOURS\n"
-        "/comment <entry_id> <text> - Comment on journals (0.1 $MON)\n"
-        "/buildaclimb <name> <difficulty> - Share a climb (10 $TOURS)\n"
-        "/purchaseclimb <location_id> - Buy a climb (10 $TOURS)\n"
-        "/findaclimb - Explore climbing spots\n"
-        "/createtournament <entry_fee> - Start a tournament\n"
-        "/jointournament <tournament_id> - Join a tournament\n"
-        "/endtournament <tournament_id> <winner> - End a tournament (owner only)\n"
-        "/balance - Check your $MON and $TOURS\n"
-        "/help - See this menu\n\n"
-        "Join the fun at https://t.me/empowertourschat! 🌄"
-    )
+    help_text = """🏔️ EmpowerTours Commands 🧗‍♀️
+
+/start - Kick off your adventure
+/tutorial - Learn to set up your wallet and profile
+/createprofile <wallet> - Join with 1 $MON
+/journal <description> - Log climbs, earn $TOURS
+/comment <entry_id> <text> - Comment on journals (0.1 $MON)
+/buildaclimb <name> <difficulty> - Share a climb (10 $TOURS)
+/purchaseclimb <location_id> - Buy a climb (10 $TOURS)
+/findaclimb - Explore climbing spots
+/createtournament <entry_fee> - Start a tournament
+/jointournament <tournament_id> - Join a tournament
+/endtournament <tournament_id> <winner> - End a tournament (owner only)
+/balance - Check your $MON and $TOURS
+/help - See this menu
+
+Join the fun at https://t.me/empowertourschat! 🌄"""
     await message.reply_text(help_text)
 
 async def monitor_events(context):
