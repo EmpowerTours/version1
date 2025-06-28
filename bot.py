@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from telegram import Update
+from telegram import Update, Chat
 from web3 import Web3
 from dotenv import load_dotenv
 from eth_account import Account
@@ -882,7 +882,7 @@ async def handle_location(update: Update, context):
                     f"New climb by {user.username}! 🧗\n"
                     f"Name: {build_data['name']} ({build_data['difficulty']})\n"
                     f"Location: ({latitude/10**6:.4f}, {longitude/10**6:.4f})\n"
-                    f"Tx: {tx_hash.hex()}"
+                    f"Tx: {tx_hash}"
                 )
             )
         else:
@@ -1294,10 +1294,24 @@ async def main():
             logger.error(f"Bot not in {CHAT_HANDLE}: {str(e)}")
             raise Exception(f"Ensure bot is a member of {CHAT_HANDLE}")
         logger.info("Starting polling...")
-        await app.run_polling(allowed_updates=Update.ALL_TYPES)
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        # Keep the application running
+        await asyncio.Event().wait()  # Wait indefinitely
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
         raise
+    finally:
+        logger.info("Shutting down application...")
+        await app.stop()
+        await app.shutdown()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+    except Exception as e:
+        logger.error(f"Application failed: {str(e)}")
+    finally:
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
