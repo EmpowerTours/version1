@@ -326,7 +326,7 @@ CONTRACT_ABI = [
         "outputs": [
             {"internalType": "address", "name": "", "type": "address"}
         ],
-        " stateMutability": "view",
+        "stateMutability": "view",
         "type": "function"
     },
     {
@@ -1070,7 +1070,7 @@ async def join_tournament(update: Update, context):
 
         # Approve $TOURS spending
         approve_tx = tours_contract.functions.approve(CONTRACT_ADDRESS, entry_fee).build_transaction({
-            'chainId': 10133,
+            'chainId': 10143,
             'from': account.address,
             'nonce': nonce,
             'gas': 100000,
