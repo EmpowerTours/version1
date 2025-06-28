@@ -830,7 +830,7 @@ async def handle_location(update: Update, context):
             'nonce': nonce,
             'gas': 100000,
             'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
+            'maxPriorityFeePerGas': g_fees['maxPriorityFeePerGas']
         })
         signed_approve = w3.eth.account.sign_transaction(approve_tx, PRIVATE_KEY)
         approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
@@ -1246,7 +1246,6 @@ async def monitor_events(context):
         logger.error(f"Error in monitor_events: {str(e)}")
 
 async def main():
-    app = None
     try:
         logger.info("Starting bot...")
         app = Application.builder().token(BOT_TOKEN).build()
@@ -1276,42 +1275,10 @@ async def main():
             logger.error(f"Bot not in {CHAT_HANDLE}: {str(e)}")
             raise Exception(f"Ensure bot is a member of {CHAT_HANDLE}")
         logger.info("Starting polling...")
-        await app.start()
-        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        logger.info("Bot is polling...")
-        await asyncio.Event().wait()
+        await app.run_polling(allowed_updates=Update.ALL_TYPES)
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
         raise
-    finally:
-        logger.info("Shutting down application...")
-        try:
-            if app and app.updater and app.updater.running:
-                await app.updater.stop()
-            if app:
-                await app.stop()
-                await app.shutdown()
-        except Exception as e:
-            logger.error(f"Error during shutdown: {str(e)}")
 
 if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.error(f"Error running bot: {str(e)}")
-    finally:
-        try:
-            if not loop.is_closed():
-                pending = asyncio.all_tasks(loop=loop)
-                for task in pending:
-                    task.cancel()
-                loop.run_until_complete(loop.shutdown_asyncgens())
-        except Exception as e:
-            logger.error(f"Error during loop cleanup: {str(e)}")
-        finally:
-            loop.close()
-            logger.info("Event loop closed")
+    asyncio.run(main())
