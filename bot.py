@@ -1,11 +1,13 @@
 import os
 import asyncio
 import logging
+import json
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
 from web3 import Web3
 from dotenv import load_dotenv
-from eth_account import Account
+from web3.exceptions import ContractLogicError
+from walletconnect import WalletConnect
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -15,7 +17,6 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
 TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
 OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
@@ -26,7 +27,6 @@ CHAT_HANDLE = "@empowertourschat"  # Telegram group handle
 required_env_vars = {
     "TELEGRAM_TOKEN": BOT_TOKEN,
     "MONAD_RPC_URL": MONAD_RPC_URL,
-    "PRIVATE_KEY": PRIVATE_KEY,
     "CONTRACT_ADDRESS": CONTRACT_ADDRESS,
     "TOURS_TOKEN_ADDRESS": TOURS_TOKEN_ADDRESS,
     "OWNER_ADDRESS": OWNER_ADDRESS,
@@ -39,7 +39,9 @@ for var_name, var_value in required_env_vars.items():
 
 # Connect to Monad testnet
 w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL))
-account = Account.from_key(PRIVATE_KEY)
+
+# Initialize WalletConnect
+wallet_connect = WalletConnect(project_id="your-walletconnect-project-id", chain_id=10143)  # Replace with your WalletConnect project ID
 
 # EmpowerTours contract ABI
 CONTRACT_ABI = [
