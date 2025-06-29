@@ -1,15 +1,15 @@
 import os
 import asyncio
 import logging
-import json
-import qrcode
-from io import BytesIO
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
-from web3 import Web3
 from dotenv import load_dotenv
-from web3.exceptions import ContractLogicError
-from web3_walletconnect_provider import WalletConnectProvider
+from contract import (
+    create_profile_tx, add_journal_entry_tx, add_comment_tx, create_climbing_location_tx,
+    purchase_climbing_location_tx, create_tournament_tx, join_tournament_tx, end_tournament_tx,
+    get_climbing_locations, broadcast_transaction
+)
+from utils import get_message, generate_qr_code
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -18,466 +18,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
-MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
-TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
-OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
-LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
-WALLET_CONNECT_PROJECT_ID = os.getenv("WALLET_CONNECT_PROJECT_ID")
-CHAT_HANDLE = "@empowertourschat"  # Telegram group handle
-
-# Validate environment variables
-required_env_vars = {
-    "TELEGRAM_TOKEN": BOT_TOKEN,
-    "MONAD_RPC_URL": MONAD_RPC_URL,
-    "CONTRACT_ADDRESS": CONTRACT_ADDRESS,
-    "TOURS_TOKEN_ADDRESS": TOURS_TOKEN_ADDRESS,
-    "OWNER_ADDRESS": OWNER_ADDRESS,
-    "LEGACY_ADDRESS": LEGACY_ADDRESS,
-    "WALLET_CONNECT_PROJECT_ID": WALLET_CONNECT_PROJECT_ID
-}
-for var_name, var_value in required_env_vars.items():
-    if not var_value:
-        logger.error(f"Missing environment variable: {var_name}")
-        raise ValueError(f"Environment variable {var_name} is not set")
-
-# Connect to Monad testnet with WalletConnect provider
-w3 = Web3(WalletConnectProvider(
-    project_id=WALLET_CONNECT_PROJECT_ID,
-    chain_id=10143,
-    rpc_url=MONAD_RPC_URL
-))
-
-# EmpowerTours contract ABI
-CONTRACT_ABI = [
-    {
-        "inputs": [
-            {"internalType": "address", "name": "_toursToken", "type": "address"},
-            {"internalType": "address", "name": "_legacyWallet", "type": "address"}
-        ],
-        "stateMutability": "nonpayable",
-        "type": "constructor"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "commenter", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "CommentAdded",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "creator", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "name", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "ClimbingLocationCreated",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "author", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "JournalEntryAdded",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "buyer", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "LocationPurchased",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "address", "name": "previousOwner", "type": "address"},
-            {"indexed": True, "internalType": "address", "name": "newOwner", "type": "address"}
-        ],
-        "name": "OwnershipTransferred",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "address", "name": "user", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "ProfileCreated",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "entryFee", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "startTime", "type": "uint256"}
-        ],
-        "name": "TournamentCreated",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "winner", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "pot", "type": "uint256"}
-        ],
-        "name": "TournamentEnded",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "participant", "type": "address"}
-        ],
-        "name": "TournamentJoined",
-        "type": "event"
-    },
-    {
-        "inputs": [
-            {"internalType": "string", "name": "contentHash", "type": "string"}
-        ],
-        "name": "addJournalEntry",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"internalType": "string", "name": "contentHash", "type": "string"}
-        ],
-        "name": "addComment",
-        "outputs": [],
-        "stateMutability": "payable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "string", "name": "name", "type": "string"},
-            {"internalType": "string", "name": "difficulty", "type": "string"},
-            {"internalType": "int256", "name": "latitude", "type": "int256"},
-            {"internalType": "int256", "name": "longitude", "type": "int256"},
-            {"internalType": "string", "name": "photoHash", "type": "string"}
-        ],
-        "name": "createClimbingLocation",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "createProfile",
-        "outputs": [],
-        "stateMutability": "payable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "entryFee", "type": "uint256"}
-        ],
-        "name": "createTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"internalType": "address", "name": "winner", "type": "address"}
-        ],
-        "name": "endTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "getClimbingLocationCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "entryId", "type": "uint256"}
-        ],
-        "name": "getCommentCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "getJournalEntryCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "getTournamentCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"}
-        ],
-        "name": "joinTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
-        ],
-        "name": "purchaseClimbingLocation",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "climbingLocations",
-        "outputs": [
-            {"internalType": "address", "name": "creator", "type": "address"},
-            {"internalType": "string", "name": "name", "type": "string"},
-            {"internalType": "string", "name": "difficulty", "type": "string"},
-            {"internalType": "int256", "name": "latitude", "type": "int256"},
-            {"internalType": "int256", "name": "longitude", "type": "int256"},
-            {"internalType": "string", "name": "photoHash", "type": "string"},
-            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "commentFee",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"},
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "journalComments",
-        "outputs": [
-            {"internalType": "address", "name": "commenter", "type": "address"},
-            {"internalType": "string", "name": "contentHash", "type": "string"},
-            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "journalEntries",
-        "outputs": [
-            {"internalType": "address", "name": "author", "type": "address"},
-            {"internalType": "string", "name": "contentHash", "type": "string"},
-            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "journalReward",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "legacyWallet",
-        "outputs": [
-            {"internalType": "address", "name": "", "type": "address"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "locationCreationCost",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "owner",
-        "outputs": [
-            {"internalType": "address", "name": "", "type": "address"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "address", "name": "", "type": "address"}
-        ],
-        "name": "profiles",
-        "outputs": [
-            {"internalType": "bool", "name": "exists", "type": "bool"},
-            {"internalType": "uint256", "name": "journalCount", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "profileFee",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "renounceOwnership",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "tournaments",
-        "outputs": [
-            {"internalType": "uint256", "name": "entryFee", "type": "uint256"},
-            {"internalType": "uint256", "name": "totalPot", "type": "uint256"},
-            {"internalType": "address", "name": "winner", "type": "address"},
-            {"internalType": "bool", "name": "isActive", "type": "bool"},
-            {"internalType": "uint256", "name": "startTime", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "toursToken",
-        "outputs": [
-            {"internalType": "contract IERC20", "name": "", "type": "address"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "address", "name": "newOwner", "type": "address"}
-        ],
-        "name": "transferOwnership",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    }
-]
-
-# ToursToken ABI
-TOURS_ABI = [
-    {
-        "constant": False,
-        "inputs": [
-            {"name": "_to", "type": "address"},
-            {"name": "_value", "type": "uint256"}
-        ],
-        "name": "transfer",
-        "outputs": [{"name": "", "type": "bool"}],
-        "type": "function"
-    },
-    {
-        "constant": True,
-        "inputs": [{"name": "_owner", "type": "address"}],
-        "name": "balanceOf",
-        "outputs": [{"name": "balance", "type": "uint256"}],
-        "type": "function"
-    },
-    {
-        "constant": False,
-        "inputs": [
-            {"name": "_spender", "type": "address"},
-            {"name": "_value", "type": "uint256"}
-        ],
-        "name": "approve",
-        "outputs": [{"name": "", "type": "bool"}],
-        "type": "function"
-    }
-]
-
-# Initialize contracts
-contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
-tours_contract = w3.eth.contract(address=TOURS_TOKEN_ADDRESS, abi=TOURS_ABI)
-
-# Ensure Web3 connection
-if not w3.is_connected():
-    logger.error("Failed to connect to Monad testnet")
-    raise ConnectionError("Cannot connect to Monad testnet")
-
-# Helper function to get message or edited_message
-def get_message(update):
-    if update.message:
-        return update.message, "message"
-    elif update.edited_message:
-        return update.edited_message, "edited_message"
-    return None, None
-
-# Helper function to get dynamic gas fees
-def get_gas_fees(wallet_address):
-    try:
-        base_fee = w3.eth.get_block('latest')['baseFeePerGas']
-        max_priority_fee = w3.eth.max_priority_fee
-        max_fee_per_gas = base_fee + max_priority_fee
-        return {
-            'maxFeePerGas': max_fee_per_gas,
-            'maxPriorityFeePerGas': max_priority_fee
-        }
-    except Exception as e:
-        logger.error(f"Error fetching gas fees for {wallet_address}: {str(e)}")
-        return {
-            'maxFeePerGas': w3.to_wei('2', 'gwei'),
-            'maxPriorityFeePerGas': w3.to_wei('1', 'gwei')
-        }
+CHAT_HANDLE = "@empowertourschat"
 
 async def start(update: Update, context):
     message, update_type = get_message(update)
@@ -523,12 +64,13 @@ Let's get you climbing on the Monad blockchain! Follow these steps:
    - Get testnet $MON from the faucet: <a href="https://testnet.monad.xyz/faucet">Monad Faucet</a>
 
 2️⃣ **Connect Your Wallet**:
-   - Use /connectwallet to connect your wallet via WalletConnect.
-   - Scan the QR code or use the deep link to link your wallet (MetaMask, Phantom, or multi-sig).
-   - Transactions will be signed directly in your wallet app.
+   - Use /connectwallet to generate a WalletConnect QR code or deep link.
+   - Scan the QR code or use the link to connect your wallet (MetaMask, Phantom, or multi-sig).
+   - Confirm your wallet address with /setwallet <address>.
 
 3️⃣ **Create Your Profile**:
-   - Use /createprofile to create your profile (1 $MON fee, signed in your wallet).
+   - Use /createprofile to generate a transaction (1 $MON fee).
+   - Copy the transaction data, sign it in your wallet, and submit the signed transaction with /sendtx.
 
 4️⃣ **Explore the App**:
    - /journal <description>: Log your climbs and earn $TOURS (send a photo after).
@@ -558,37 +100,93 @@ async def connect_wallet(update: Update, context):
 
     try:
         user = message.from_user
-        # Generate WalletConnect session
-        wc_session = w3.provider.create_session()
-        qr = qrcode.QRCode(version=1, box_size=10, border=4)
-        qr.add_data(wc_session['uri'])
-        qr.make(fit=True)
-        qr_img = qr.make_image(fill_color="black", back_color="white")
-        qr_buffer = BytesIO()
-        qr_img.save(qr_buffer, format="PNG")
-        qr_buffer.seek(0)
+        session_id = str(uuid.uuid4())
+        wc_uri = f"wc:{session_id}@2?projectId={os.getenv('WALLET_CONNECT_PROJECT_ID')}&relay-protocol=irn"
+        qr_buffer = generate_qr_code(wc_uri)
 
         context.user_data['wc_session'] = {
             'user_id': user.id,
-            'session_id': wc_session['topic']
+            'session_id': session_id
         }
         await message.reply_photo(
             photo=qr_buffer,
             caption=(
                 f"Connect your wallet (MetaMask, Phantom, etc.) by scanning this QR code.\n"
-                f"Or use this deep link: <a href=\"{wc_session['uri']}\">Connect Wallet</a>\n"
-                f"Once connected, your wallet will be linked for signing transactions."
+                f"Or use this deep link: <a href=\"{wc_uri}\">Connect Wallet</a>\n"
+                f"After connecting, confirm your wallet address with /setwallet <address>."
             ),
             parse_mode="HTML"
         )
-        # Wait for wallet connection
-        wallet_address = await w3.provider.wait_for_connection(wc_session['topic'], timeout=300)
+    except Exception as e:
+        logger.error(f"Error in /connectwallet: {str(e)}")
+        await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
+
+async def set_wallet(update: Update, context):
+    message, update_type = get_message(update)
+    if message is None:
+        logger.warning(f"Received non-message update: {update.to_dict()}")
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text(
+                "Use /setwallet in the chat! 🧗"
+            )
+        return
+
+    try:
+        user = message.from_user
+        if not context.args:
+            await message.reply_text(
+                "Please provide your wallet address, e.g., /setwallet 0xYourAddress 🪙"
+            )
+            return
+        wallet_address = context.args[0]
+        if not w3.is_address(wallet_address):
+            await message.reply_text("Invalid wallet address! Use a valid Monad address. 😕")
+            return
+
         context.user_data['wallet_address'] = wallet_address
         await message.reply_text(
             f"Wallet connected successfully: {wallet_address}! 🎉 Now use /createprofile to join EmpowerTours."
         )
     except Exception as e:
-        logger.error(f"Error in /connectwallet: {str(e)}")
+        logger.error(f"Error in /setwallet: {str(e)}")
+        await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
+
+async def send_tx(update: Update, context):
+    message, update_type = get_message(update)
+    if message is None:
+        logger.warning(f"Received non-message update: {update.to_dict()}")
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text(
+                "Use /sendtx in the chat! 🧗"
+            )
+        return
+
+    try:
+        user = message.from_user
+        if not context.args:
+            await message.reply_text(
+                "Please provide the signed transaction hex, e.g., /sendtx 0xSignedTxHex 🪙"
+            )
+            return
+        signed_tx_hex = context.args[0]
+        pending_tx = context.user_data.get('pending_tx')
+        if not pending_tx or pending_tx['user_id'] != user.id:
+            await message.reply_text(
+                "No pending transaction found or invalid user. Start with /createprofile, /journal, etc. 😕"
+            )
+            return
+
+        result = await broadcast_transaction(signed_tx_hex, pending_tx, user, context)
+        if result['status'] == 'success':
+            await message.reply_text(result['message'])
+            if 'group_message' in result:
+                await context.bot.send_message(chat_id=CHAT_HANDLE, text=result['group_message'])
+        else:
+            await message.reply_text(result['message'])
+    except Exception as e:
+        logger.error(f"Error in /sendtx: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
 
 async def create_profile(update: Update, context):
@@ -606,73 +204,33 @@ async def create_profile(update: Update, context):
         user = message.from_user
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        profile = contract.functions.profiles(wallet_address).call()
-        if profile[0]:  # profile.exists
-            await message.reply_text(
-                f"Profile already exists for {wallet_address}! Try /journal or /buildaclimb. 🪨"
-            )
-            return
-
-        profile_fee = contract.functions.profileFee().call()
-        balance = w3.eth.get_balance(wallet_address)
-        try:
-            gas_estimate = contract.functions.createProfile().estimate_gas({
-                'from': wallet_address,
-                'value': profile_fee
-            })
-        except ContractLogicError as e:
-            logger.error(f"Contract error in createProfile: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure the contract is valid or try again later. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        gas_cost = gas_limit * gas_fees['maxFeePerGas']
-        if balance < gas_cost + profile_fee:
-            await message.reply_text(
-                f"Need {w3.from_wei(profile_fee + gas_cost, 'ether')} $MON to create profile. "
-                f"Your balance: {w3.from_wei(balance, 'ether')} $MON. "
-                "Top up at <a href=\"https://testnet.monad.xyz/faucet\">Monad Faucet</a>! 🪙",
+        result = await create_profile_tx(wallet_address, user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': 'create_profile',
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
                 parse_mode="HTML"
             )
-            return
-
-        tx = contract.functions.createProfile().build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'value': profile_fee,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        # Send transaction request via WalletConnect
-        tx_hash = await w3.provider.request_transaction(wc_session['topic'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            context.user_data['wallet_address'] = wallet_address
-            await message.reply_text(
-                f"Welcome aboard, {user.first_name}! Your profile is live! 🎉 Tx: {tx_hash.hex()}\n"
-                "Try /journal to log your first climb or /buildaclimb to share a spot! 🪨"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=f"New climber {user.username} joined EmpowerTours! 🧗 Tx: {tx_hash.hex()}"
-            )
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in /createprofile: {str(e)}")
-        await message.reply_text(
-            f"Oops, something went wrong: {str(e)}. Check your wallet connection and try again! 😅"
-        )
+        await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
 
 async def journal_entry(update: Update, context):
     message, update_type = get_message(update)
@@ -725,46 +283,31 @@ async def handle_journal_photo(update: Update, context):
 
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        try:
-            gas_estimate = contract.functions.addJournalEntry(journal_data['content_hash']).estimate_gas({
-                'from': wallet_address
-            })
-        except ContractLogicError as e:
-            logger.error(f"Contract error in addJournalEntry: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure you have a profile and try again. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.addJournalEntry(journal_data['content_hash']).build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'nonce': nonce,
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            await message.reply_text(
-                f"Journal entry logged, {user.first_name}! You earned 5 $TOURS! 🎉 Tx: {tx_hash.hex()}"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=f"{user.username} shared a climb journal! 🪨 Check it out! Tx: {tx_hash.hex()}"
+        result = await add_journal_entry_tx(wallet_address, journal_data['content_hash'], user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': 'journal_entry',
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
+                parse_mode="HTML"
             )
             context.user_data.pop('journal', None)
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in handle_journal_photo: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
@@ -789,63 +332,33 @@ async def add_comment(update: Update, context):
             return
         entry_id = int(context.args[0])
         comment = " ".join(context.args[1:])
-        comment_hash = w3.keccak(text=comment).hex()
-        comment_fee = contract.functions.commentFee().call()
-
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        balance = w3.eth.get_balance(wallet_address)
-        try:
-            gas_estimate = contract.functions.addComment(entry_id, comment_hash).estimate_gas({
-                'from': wallet_address,
-                'value': comment_fee
-            })
-        except ContractLogicError as e:
-            logger.error(f"Contract error in addComment: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure the entry exists and you have enough $MON. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        gas_cost = gas_limit * gas_fees['maxFeePerGas']
-
-        if balance < gas_cost + comment_fee:
-            await message.reply_text(
-                f"Need {w3.from_wei(comment_fee + gas_cost, 'ether')} $MON to comment. "
-                "Top up at <a href=\"https://testnet.monad.xyz/faucet\">Monad Faucet</a>! 🪙",
+        result = await add_comment_tx(wallet_address, entry_id, comment, user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': 'add_comment',
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'entry_id': entry_id,
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
                 parse_mode="HTML"
             )
-            return
-
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.addComment(entry_id, comment_hash).build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'value': comment_fee,
-            'nonce': nonce,
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            await message.reply_text(
-                f"Comment added to entry #{entry_id}, {user.first_name}! 🎉 Tx: {tx_hash.hex()}"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=f"{user.username} commented on journal entry #{entry_id}! 🗣️ Tx: {tx_hash.hex()}"
-            )
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in /comment: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
@@ -922,85 +435,35 @@ async def handle_location(update: Update, context):
         latitude = int(message.location.latitude * 10**6)
         longitude = int(message.location.longitude * 10**6)
         photo_hash = build_data['photo_id']
-
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        location_cost = contract.functions.locationCreationCost().call()
-        balance = tours_contract.functions.balanceOf(wallet_address).call()
-        allowance = tours_contract.functions.allowance(wallet_address, CONTRACT_ADDRESS).call()
-        if balance < location_cost:
-            await message.reply_text(
-                f"Need {location_cost/10**18} $TOURS to create a climb. "
-                f"Your balance: {balance/10**18} $TOURS. Top up your wallet! 🪙"
-            )
-            return
-        if allowance < location_cost:
-            gas_fees = get_gas_fees(wallet_address)
-            nonce = w3.eth.get_transaction_count(wallet_address)
-            approve_tx = tours_contract.functions.approve(CONTRACT_ADDRESS, location_cost).build_transaction({
-                'chainId': 10143,
-                'from': wallet_address,
-                'nonce': nonce,
-                'gas': 100000,
-                'maxFeePerGas': gas_fees['maxFeePerGas'],
-                'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-            })
-            approve_tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], approve_tx)
-            approve_receipt = w3.eth.wait_for_transaction_receipt(approve_tx_hash, timeout=300)
-            if approve_receipt.status != 1:
-                await message.reply_text("Approval transaction failed. Check your wallet and try again! 💪")
-                return
-
-        try:
-            gas_estimate = contract.functions.createClimbingLocation(
-                build_data['name'], build_data['difficulty'], latitude, longitude, photo_hash
-            ).estimate_gas({'from': wallet_address})
-        except ContractLogicError as e:
-            logger.error(f"Contract error in createClimbingLocation: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure you have a profile and sufficient $TOURS allowance. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.createClimbingLocation(
-            build_data['name'], build_data['difficulty'], latitude, longitude, photo_hash
-        ).build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'nonce': nonce,
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            location_id = contract.functions.getClimbingLocationCount().call() - 1
-            location = contract.functions.climbingLocations(location_id).call()
-            await message.reply_text(
-                f"Climb created, {user.first_name}! 🪨 {build_data['name']} ({build_data['difficulty']}) "
-                f"at ({location[3]/10**6:.4f}, {location[4]/10**6:.4f}). Tx: {tx_hash.hex()}"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=(
-                    f"New climb by {user.username}! 🧗\n"
-                    f"Name: {build_data['name']} ({build_data['difficulty']})\n"
-                    f"Location: ({location[3]/10**6:.4f}, {location[4]/10**6:.4f})\n"
-                    f"Tx: {tx_hash}"
-                )
+        result = await create_climbing_location_tx(wallet_address, build_data['name'], build_data['difficulty'], latitude, longitude, photo_hash, user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': result['tx_type'],
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'name': build_data['name'],
+                'difficulty': build_data['difficulty'],
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this {result['tx_type'].replace('_', ' ')} transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
+                parse_mode="HTML"
             )
             context.user_data.pop('buildaclimb', None)
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in handle_location: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
@@ -1024,71 +487,31 @@ async def purchase_climb(update: Update, context):
         location_id = int(context.args[0])
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        location_cost = contract.functions.locationCreationCost().call()
-        balance = tours_contract.functions.balanceOf(wallet_address).call()
-        allowance = tours_contract.functions.allowance(wallet_address, CONTRACT_ADDRESS).call()
-        if balance < location_cost:
-            await message.reply_text(
-                f"Need {location_cost/10**18} $TOURS to purchase a climb. "
-                f"Your balance: {balance/10**18} $TOURS. Top up your wallet! 🪙"
-            )
-            return
-        if allowance < location_cost:
-            gas_fees = get_gas_fees(wallet_address)
-            nonce = w3.eth.get_transaction_count(wallet_address)
-            approve_tx = tours_contract.functions.approve(CONTRACT_ADDRESS, location_cost).build_transaction({
-                'chainId': 10143,
-                'from': wallet_address,
-                'nonce': nonce,
-                'gas': 100000,
-                'maxFeePerGas': gas_fees['maxFeePerGas'],
-                'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-            })
-            approve_tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], approve_tx)
-            approve_receipt = w3.eth.wait_for_transaction_receipt(approve_tx_hash, timeout=300)
-            if approve_receipt.status != 1:
-                await message.reply_text("Approval transaction failed. Check your wallet and try again! 💪")
-                return
-
-        try:
-            gas_estimate = contract.functions.purchaseClimbingLocation(location_id).estimate_gas({
-                'from': wallet_address
-            })
-        except ContractLogicError as e:
-            logger.error(f"Contract error in purchaseClimbingLocation: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure the location ID is valid. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.purchaseClimbingLocation(location_id).build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'nonce': nonce,
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            await message.reply_text(
-                f"Climb #{location_id} purchased, {user.first_name}! 🎉 Tx: {tx_hash.hex()}"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=f"{user.username} purchased climb #{location_id}! 🪨 Tx: {tx_hash.hex()}"
+        result = await purchase_climbing_location_tx(wallet_address, location_id, user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': result['tx_type'],
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'location_id': location_id,
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this {result['tx_type'].replace('_', ' ')} transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
+                parse_mode="HTML"
             )
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in /purchaseclimb: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
@@ -1112,50 +535,30 @@ async def create_tournament(update: Update, context):
         entry_fee = int(float(context.args[0]) * 10**18)
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        try:
-            gas_estimate = contract.functions.createTournament(entry_fee).estimate_gas({
-                'from': wallet_address
-            })
-        except ContractLogicError as e:
-            logger.error(f"Contract error in createTournament: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure you have a profile. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.createTournament(entry_fee).build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'nonce': nonce,
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            tournament_id = contract.functions.getTournamentCount().call() - 1
-            await message.reply_text(
-                f"Tournament #{tournament_id} created, {user.first_name}! 🏆 Tx: {tx_hash.hex()}"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=(
-                    f"New tournament #{tournament_id} by {user.username}! 🏆\n"
-                    f"Join with /jointournament {tournament_id}\n"
-                    f"Tx: {tx_hash.hex()}"
-                )
+        result = await create_tournament_tx(wallet_address, entry_fee, user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': 'create_tournament',
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
+                parse_mode="HTML"
             )
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in /createtournament: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
@@ -1179,72 +582,31 @@ async def join_tournament(update: Update, context):
         tournament_id = int(context.args[0])
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        tournament = contract.functions.tournaments(tournament_id).call()
-        entry_fee = tournament[0]
-        balance = tours_contract.functions.balanceOf(wallet_address).call()
-        allowance = tours_contract.functions.allowance(wallet_address, CONTRACT_ADDRESS).call()
-        if balance < entry_fee:
-            await message.reply_text(
-                f"Need {entry_fee/10**18} $TOURS to join tournament. "
-                f"Your balance: {balance/10**18} $TOURS. Top up your wallet! 🪙"
-            )
-            return
-        if allowance < entry_fee:
-            gas_fees = get_gas_fees(wallet_address)
-            nonce = w3.eth.get_transaction_count(wallet_address)
-            approve_tx = tours_contract.functions.approve(CONTRACT_ADDRESS, entry_fee).build_transaction({
-                'chainId': 10143,
-                'from': wallet_address,
-                'nonce': nonce,
-                'gas': 100000,
-                'maxFeePerGas': gas_fees['maxFeePerGas'],
-                'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-            })
-            approve_tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], approve_tx)
-            approve_receipt = w3.eth.wait_for_transaction_receipt(approve_tx_hash, timeout=300)
-            if approve_receipt.status != 1:
-                await message.reply_text("Approval transaction failed. Check your wallet and try again! 💪")
-                return
-
-        try:
-            gas_estimate = contract.functions.joinTournament(tournament_id).estimate_gas({
-                'from': wallet_address
-            })
-        except ContractLogicError as e:
-            logger.error(f"Contract error in joinTournament: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure the tournament ID is valid. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.joinTournament(tournament_id).build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'nonce': nonce,
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            await message.reply_text(
-                f"Joined tournament #{tournament_id}, {user.first_name}! 🏆 Tx: {tx_hash.hex()}"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=f"{user.username} joined tournament #{tournament_id}! 🏆 Tx: {tx_hash.hex()}"
+        result = await join_tournament_tx(wallet_address, tournament_id, user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': result['tx_type'],
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'tournament_id': tournament_id,
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this {result['tx_type'].replace('_', ' ')} transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
+                parse_mode="HTML"
             )
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in /jointournament: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
@@ -1267,58 +629,33 @@ async def end_tournament(update: Update, context):
             return
         tournament_id = int(context.args[0])
         winner_address = context.args[1]
-        if not w3.is_address(winner_address):
-            await message.reply_text("Invalid winner address! 😕")
-            return
-
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
-            return
-        if wallet_address.lower() != OWNER_ADDRESS.lower():
-            await message.reply_text("Only the owner can end tournaments! 🚫")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
-        try:
-            gas_estimate = contract.functions.endTournament(tournament_id, winner_address).estimate_gas({
-                'from': wallet_address
-            })
-        except ContractLogicError as e:
-            logger.error(f"Contract error in endTournament: {str(e)}")
-            await message.reply_text(
-                f"Contract error: {str(e)}. Ensure the tournament ID is valid. 😅"
-            )
-            return
-
-        gas_limit = int(gas_estimate * 1.2)
-        gas_fees = get_gas_fees(wallet_address)
-        nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.endTournament(tournament_id, winner_address).build_transaction({
-            'chainId': 10143,
-            'from': wallet_address,
-            'nonce': nonce,
-            'gas': gas_limit,
-            'maxFeePerGas': gas_fees['maxFeePerGas'],
-            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
-        })
-
-        tx_hash = await w3.provider.request_transaction(context.user_data['wc_session']['session_id'], tx)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
-
-        if receipt.status == 1:
-            await message.reply_text(
-                f"Tournament #{tournament_id} ended with winner {winner_address}! 🏆 Tx: {tx_hash.hex()}"
-            )
-            await context.bot.send_message(
-                chat_id=CHAT_HANDLE,
-                text=(
-                    f"Tournament #{tournament_id} ended by {user.username}! 🏆\n"
-                    f"Winner: {winner_address}\n"
-                    f"Tx: {tx_hash.hex()}"
-                )
+        result = await end_tournament_tx(wallet_address, tournament_id, winner_address, user)
+        if result['status'] == 'success':
+            context.user_data['pending_tx'] = {
+                'type': 'end_tournament',
+                'user_id': user.id,
+                'username': user.username,
+                'wallet_address': wallet_address,
+                'tournament_id': tournament_id,
+                'tx_data': result['tx_data']
+            }
+            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
+            await message.reply_photo(
+                photo=qr_buffer,
+                caption=(
+                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
+                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
+                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
+                ),
+                parse_mode="HTML"
             )
         else:
-            await message.reply_text("Transaction failed. Check your wallet and try again! 💪")
+            await message.reply_text(result['message'])
     except Exception as e:
         logger.error(f"Error in /endtournament: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
@@ -1337,7 +674,7 @@ async def balance(update: Update, context):
     try:
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
             return
 
         balance_wei = w3.eth.get_balance(wallet_address)
@@ -1353,6 +690,32 @@ async def balance(update: Update, context):
         )
     except Exception as e:
         logger.error(f"Error in /balance: {str(e)}")
+        await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
+
+async def find_a_climb(update: Update, context):
+    message, update_type = get_message(update)
+    if message is None:
+        logger.warning(f"Received non-message update: {update.to_dict()}")
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text(
+                "Use /findaclimb in the chat! 🧗"
+            )
+        return
+
+    try:
+        tour_list = await get_climbing_locations()
+        if not tour_list:
+            await message.reply_text(
+                "No climbs yet! Create one with /buildaclimb 🪨"
+            )
+            return
+        await message.reply_text(
+            f"Discover Climbs:\n" + "\n".join(tour_list) + "\n"
+            "Create your own with /buildaclimb or buy one with /purchaseclimb! 🌄"
+        )
+    except Exception as e:
+        logger.error(f"Error in /findaclimb: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
 
 async def help_command(update: Update, context):
@@ -1371,7 +734,9 @@ async def help_command(update: Update, context):
 /start - Kick off your adventure
 /tutorial - Learn to set up your wallet and profile
 /connectwallet - Connect your wallet (MetaMask, Phantom, etc.)
+/setwallet <address> - Confirm your wallet address
 /createprofile - Join with 1 $MON
+/sendtx <signed_tx_hex> - Submit a signed transaction
 /journal <description> - Log climbs, earn $TOURS
 /comment <entry_id> <text> - Comment on journals (0.1 $MON)
 /buildaclimb <name> <difficulty> - Share a climb (10 $TOURS)
@@ -1385,41 +750,6 @@ async def help_command(update: Update, context):
 
 Join the fun at <a href="https://t.me/empowertourschat">EmpowerTours Chat</a>! 🌄"""
     await message.reply_text(help_text, parse_mode="HTML")
-
-async def find_a_climb(update: Update, context):
-    message, update_type = get_message(update)
-    if message is None:
-        logger.warning(f"Received non-message update: {update.to_dict()}")
-        if update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /findaclimb in the chat! 🧗"
-            )
-        return
-
-    try:
-        location_count = contract.functions.getClimbingLocationCount().call()
-        if location_count == 0:
-            await message.reply_text(
-                "No climbs yet! Create one with /buildaclimb 🪨"
-            )
-            return
-
-        tour_list = []
-        for i in range(location_count):
-            location = contract.functions.climbingLocations(i).call()
-            tour_list.append(
-                f"🏔️ {location[1]} ({location[2]}) - By {location[0][:6]}...\n"
-                f"   Location: ({location[3]/10**6:.4f}, {location[4]/10**6:.4f})\n"
-                f"   Map: https://www.google.com/maps?q={location[3]/10**6},{location[4]/10**6}"
-            )
-        await message.reply_text(
-            f"Discover Climbs:\n" + "\n".join(tour_list) + "\n"
-            "Create your own with /buildaclimb or buy one with /purchaseclimb! 🌄"
-        )
-    except Exception as e:
-        logger.error(f"Error in /findaclimb: {str(e)}")
-        await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
 
 async def monitor_events(context):
     try:
@@ -1450,6 +780,8 @@ async def main():
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("tutorial", tutorial))
         app.add_handler(CommandHandler("connectwallet", connect_wallet))
+        app.add_handler(CommandHandler("setwallet", set_wallet))
+        app.add_handler(CommandHandler("sendtx", send_tx))
         app.add_handler(CommandHandler("createprofile", create_profile))
         app.add_handler(CommandHandler("journal", journal_entry))
         app.add_handler(CommandHandler("comment", add_comment))
@@ -1476,7 +808,7 @@ async def main():
         logger.info("Starting polling...")
         await app.start()
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        await asyncio.Event().wait()  # Wait indefinitely
+        await asyncio.Event().wait()
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
         raise
