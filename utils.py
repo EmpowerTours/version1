@@ -1,5 +1,10 @@
-from io import BytesIO
-import qrcode
+from web3 import Web3
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
+w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL))
 
 def get_message(update):
     if update.message:
@@ -7,13 +12,3 @@ def get_message(update):
     elif update.edited_message:
         return update.edited_message, "edited_message"
     return None, None
-
-def generate_qr_code(data):
-    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(data)
-    qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white")
-    qr_buffer = BytesIO()
-    qr_img.save(qr_buffer, format="PNG")
-    qr_buffer.seek(0)
-    return qr_buffer
