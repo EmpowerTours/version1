@@ -3,4 +3,6 @@ web3==6.11.0
 python-dotenv==1.0.0
 eth-account==0.10.0
 setuptools==74.1.2
-walletconnect
+web3-wc-provider
+qrcode
+Pillow
