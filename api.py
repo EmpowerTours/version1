@@ -5,9 +5,11 @@ import sqlite3
 import json
 import uuid
 import logging
+import aiohttp
 from web3 import Web3
 from dotenv import load_dotenv
 import os
+from contract import broadcast_transaction
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -93,7 +95,6 @@ async def set_wallet(request: WalletRequest):
             (request.walletAddress, request.telegramUserId)
         )
         conn.commit()
-        # Notify bot via Telegram API
         async with aiohttp.ClientSession() as session:
             await session.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -121,7 +122,7 @@ async def sign_transaction(request: SignRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/broadcast")
-async def broadcast_transaction(request: BroadcastRequest):
+async def broadcast_transaction_endpoint(request: BroadcastRequest):
     try:
         cursor.execute(
             "SELECT tx_type, name, difficulty, location_id, tournament_id FROM pending_txs WHERE user_id = ? ORDER BY ROWID DESC LIMIT 1",
@@ -132,14 +133,19 @@ async def broadcast_transaction(request: BroadcastRequest):
             raise HTTPException(status_code=404, detail="No pending transaction found")
         
         tx_type, name, difficulty, location_id, tournament_id = pending_tx
-        result = await broadcast_transaction(request.signedTxHex, {
-            'tx_type': tx_type,
-            'wallet_address': cursor.execute("SELECT wallet_address FROM sessions WHERE user_id = ?", (request.telegramUserId,)).fetchone()[0],
-            'name': name,
-            'difficulty': difficulty,
-            'location_id': location_id,
-            'tournament_id': tournament_id
-        }, request.telegramUserId)
+        result = await broadcast_transaction(
+            signed_tx_hex=request.signedTxHex,
+            pending_tx={
+                'tx_type': tx_type,
+                'wallet_address': cursor.execute("SELECT wallet_address FROM sessions WHERE user_id = ?", (request.telegramUserId,)).fetchone()[0],
+                'name': name,
+                'difficulty': difficulty,
+                'location_id': location_id,
+                'tournament_id': tournament_id
+            },
+            user={'id': request.telegramUserId, 'first_name': 'User', 'username': f"user_{request.telegramUserId}"},
+            context=None
+        )
         
         if result['status'] == 'success':
             async with aiohttp.ClientSession() as session:
