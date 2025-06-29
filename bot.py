@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from telegram import Update, Chat
+from telegram import Update
 from web3 import Web3
 from dotenv import load_dotenv
 from eth_account import Account
@@ -585,7 +585,7 @@ async def create_profile(update: Update, context):
         })
 
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -674,7 +674,7 @@ async def handle_journal_photo(update: Update, context):
         })
 
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -743,7 +743,7 @@ async def add_comment(update: Update, context):
         })
 
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -852,7 +852,7 @@ async def handle_location(update: Update, context):
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
         signed_approve = w3.eth.account.sign_transaction(approve_tx, PRIVATE_KEY)
-        approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+        approve_hash = w3.eth.send_raw_transaction(signed_approve.rawTransaction)
         w3.eth.wait_for_transaction_receipt(approve_hash, timeout=300)
 
         # Create climbing location
@@ -867,7 +867,7 @@ async def handle_location(update: Update, context):
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -968,7 +968,7 @@ async def purchase_climb(update: Update, context):
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
         signed_approve = w3.eth.account.sign_transaction(approve_tx, PRIVATE_KEY)
-        approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+        approve_hash = w3.eth.send_raw_transaction(signed_approve.rawTransaction)
         w3.eth.wait_for_transaction_receipt(approve_hash, timeout=300)
 
         # Purchase climb
@@ -981,7 +981,7 @@ async def purchase_climb(update: Update, context):
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -1032,7 +1032,7 @@ async def create_tournament(update: Update, context):
         })
 
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -1097,7 +1097,7 @@ async def join_tournament(update: Update, context):
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
         signed_approve = w3.eth.account.sign_transaction(approve_tx, PRIVATE_KEY)
-        approve_hash = w3.eth.send_raw_transaction(signed_approve.raw_transaction)
+        approve_hash = w3.eth.send_raw_transaction(signed_approve.rawTransaction)
         w3.eth.wait_for_transaction_receipt(approve_hash, timeout=300)
 
         # Join tournament
@@ -1110,7 +1110,7 @@ async def join_tournament(update: Update, context):
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -1165,7 +1165,7 @@ async def end_tournament(update: Update, context):
         })
 
         signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
 
         if receipt.status == 1:
@@ -1307,7 +1307,8 @@ async def main():
         await app.shutdown()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(main())
     except Exception as e:
