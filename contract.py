@@ -1,8 +1,15 @@
 import os
 import json
+import sqlite3
+import logging
 from web3 import Web3
 from web3.exceptions import ContractLogicError
 from dotenv import load_dotenv
+import requests
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -11,6 +18,7 @@ CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
 TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
 OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
 LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://your-bot-api.com")
 CHAT_HANDLE = "@empowertourschat"
 
 # Connect to Monad testnet
@@ -410,12 +418,48 @@ TOURS_ABI = [
         "name": "approve",
         "outputs": [{"name": "", "type": "bool"}],
         "type": "function"
+    },
+    {
+        "constant": True,
+        "inputs": [
+            {"name": "_owner", "type": "address"},
+            {"name": "_spender", "type": "address"}
+        ],
+        "name": "allowance",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "type": "function"
     }
 ]
 
 # Initialize contracts
 contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
 tours_contract = w3.eth.contract(address=TOURS_TOKEN_ADDRESS, abi=TOURS_ABI)
+
+# Initialize SQLite database
+conn = sqlite3.connect('empowertours.db')
+cursor = conn.cursor()
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sessions (
+        user_id TEXT PRIMARY KEY,
+        session_id TEXT,
+        wallet_address TEXT
+    )
+''')
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS pending_txs (
+        user_id TEXT,
+        tx_type TEXT,
+        tx_data TEXT,
+        name TEXT,
+        difficulty TEXT,
+        latitude INTEGER,
+        longitude INTEGER,
+        photo_hash TEXT,
+        location_id INTEGER,
+        tournament_id INTEGER
+    )
+''')
+conn.commit()
 
 async def get_gas_fees(wallet_address):
     try:
@@ -427,6 +471,7 @@ async def get_gas_fees(wallet_address):
             'maxPriorityFeePerGas': max_priority_fee
         }
     except Exception as e:
+        logger.error(f"Error fetching gas fees for {wallet_address}: {str(e)}")
         return {
             'maxFeePerGas': w3.to_wei('2', 'gwei'),
             'maxPriorityFeePerGas': w3.to_wei('1', 'gwei')
@@ -440,6 +485,17 @@ async def create_profile_tx(wallet_address, user):
         
         profile_fee = contract.functions.profileFee().call()
         balance = w3.eth.get_balance(wallet_address)
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'value': profile_fee,
+                'data': contract.encodeABI(fn_name='createProfile', args=[])
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in createProfile: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the contract is valid. 😅"}
+        
         gas_estimate = contract.functions.createProfile().estimate_gas({'from': wallet_address, 'value': profile_fee})
         gas_limit = int(gas_estimate * 1.2)
         gas_fees = await get_gas_fees(wallet_address)
@@ -465,14 +521,35 @@ async def create_profile_tx(wallet_address, user):
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
-        return {'status': 'success', 'tx_data': tx}
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data) VALUES (?, ?, ?)",
+            (str(user.id), 'create_profile', json.dumps(tx))
+        )
+        conn.commit()
+        return {'status': 'success', 'tx_type': 'create_profile', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in createProfile: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the contract is valid or try again later. 😅"}
     except Exception as e:
+        logger.error(f"Error in create_profile_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def add_journal_entry_tx(wallet_address, content_hash, user):
     try:
+        profile = contract.functions.profiles(wallet_address).call()
+        if not profile[0]:
+            return {'status': 'error', 'message': "You need to create a profile first with /createprofile! 🪙"}
+        
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'data': contract.encodeABI(fn_name='addJournalEntry', args=[content_hash])
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in addJournalEntry: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure you have a profile. 😅"}
+        
         gas_estimate = contract.functions.addJournalEntry(content_hash).estimate_gas({'from': wallet_address})
         gas_limit = int(gas_estimate * 1.2)
         gas_fees = await get_gas_fees(wallet_address)
@@ -485,17 +562,39 @@ async def add_journal_entry_tx(wallet_address, content_hash, user):
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
-        return {'status': 'success', 'tx_data': tx}
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data) VALUES (?, ?, ?)",
+            (str(user.id), 'journal_entry', json.dumps(tx))
+        )
+        conn.commit()
+        return {'status': 'success', 'tx_type': 'journal_entry', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in addJournalEntry: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure you have a profile and try again. 😅"}
     except Exception as e:
+        logger.error(f"Error in add_journal_entry_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def add_comment_tx(wallet_address, entry_id, comment, user):
     try:
+        profile = contract.functions.profiles(wallet_address).call()
+        if not profile[0]:
+            return {'status': 'error', 'message': "You need to create a profile first with /createprofile! 🪙"}
+        
         comment_hash = w3.keccak(text=comment).hex()
         comment_fee = contract.functions.commentFee().call()
         balance = w3.eth.get_balance(wallet_address)
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'value': comment_fee,
+                'data': contract.encodeABI(fn_name='addComment', args=[entry_id, comment_hash])
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in addComment: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the entry exists. 😅"}
+        
         gas_estimate = contract.functions.addComment(entry_id, comment_hash).estimate_gas({
             'from': wallet_address,
             'value': comment_fee
@@ -523,14 +622,28 @@ async def add_comment_tx(wallet_address, entry_id, comment, user):
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
-        return {'status': 'success', 'tx_data': tx}
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data, location_id) VALUES (?, ?, ?, ?)",
+            (str(user.id), 'add_comment', json.dumps(tx), entry_id)
+        )
+        conn.commit()
+        return {'status': 'success', 'tx_type': 'add_comment', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in addComment: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the entry exists and you have enough $MON. 😅"}
     except Exception as e:
+        logger.error(f"Error in add_comment_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def create_climbing_location_tx(wallet_address, name, difficulty, latitude, longitude, photo_hash, user):
     try:
+        profile = contract.functions.profiles(wallet_address).call()
+        if not profile[0]:
+            return {'status': 'error', 'message': "You need to create a profile first with /createprofile! 🪙"}
+        
+        if not name or not difficulty:
+            return {'status': 'error', 'message': "Name and difficulty cannot be empty! 😅"}
+        
         location_cost = contract.functions.locationCreationCost().call()
         balance = tours_contract.functions.balanceOf(wallet_address).call()
         allowance = tours_contract.functions.allowance(wallet_address, CONTRACT_ADDRESS).call()
@@ -553,6 +666,11 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
                 'maxFeePerGas': gas_fees['maxFeePerGas'],
                 'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
             })
+            cursor.execute(
+                "INSERT INTO pending_txs (user_id, tx_type, tx_data, name, difficulty, latitude, longitude, photo_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (str(user.id), 'approve_tours', json.dumps(approve_tx), name, difficulty, latitude, longitude, photo_hash)
+            )
+            conn.commit()
             return {
                 'status': 'success',
                 'tx_type': 'approve_tours',
@@ -566,6 +684,19 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
                     'photo_hash': photo_hash
                 }
             }
+        
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'data': contract.encodeABI(
+                    fn_name='createClimbingLocation',
+                    args=[name, difficulty, latitude, longitude, photo_hash]
+                )
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in createClimbingLocation: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Check parameters or contract state. 😅"}
         
         gas_estimate = contract.functions.createClimbingLocation(
             name, difficulty, latitude, longitude, photo_hash
@@ -583,14 +714,25 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data, name, difficulty, latitude, longitude, photo_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (str(user.id), 'create_climbing_location', json.dumps(tx), name, difficulty, latitude, longitude, photo_hash)
+        )
+        conn.commit()
         return {'status': 'success', 'tx_type': 'create_climbing_location', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in createClimbingLocation: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure you have a profile and sufficient $TOURS allowance. 😅"}
     except Exception as e:
+        logger.error(f"Error in create_climbing_location_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def purchase_climbing_location_tx(wallet_address, location_id, user):
     try:
+        profile = contract.functions.profiles(wallet_address).call()
+        if not profile[0]:
+            return {'status': 'error', 'message': "You need to create a profile first with /createprofile! 🪙"}
+        
         location_cost = contract.functions.locationCreationCost().call()
         balance = tours_contract.functions.balanceOf(wallet_address).call()
         allowance = tours_contract.functions.allowance(wallet_address, CONTRACT_ADDRESS).call()
@@ -613,6 +755,11 @@ async def purchase_climbing_location_tx(wallet_address, location_id, user):
                 'maxFeePerGas': gas_fees['maxFeePerGas'],
                 'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
             })
+            cursor.execute(
+                "INSERT INTO pending_txs (user_id, tx_type, tx_data, location_id) VALUES (?, ?, ?, ?)",
+                (str(user.id), 'approve_tours', json.dumps(approve_tx), location_id)
+            )
+            conn.commit()
             return {
                 'status': 'success',
                 'tx_type': 'approve_tours',
@@ -622,6 +769,19 @@ async def purchase_climbing_location_tx(wallet_address, location_id, user):
                     'location_id': location_id
                 }
             }
+        
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'data': contract.encodeABI(
+                    fn_name='purchaseClimbingLocation',
+                    args=[location_id]
+                )
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in purchaseClimbingLocation: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the location ID is valid. 😅"}
         
         gas_estimate = contract.functions.purchaseClimbingLocation(location_id).estimate_gas({'from': wallet_address})
         gas_limit = int(gas_estimate * 1.2)
@@ -635,14 +795,38 @@ async def purchase_climbing_location_tx(wallet_address, location_id, user):
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data, location_id) VALUES (?, ?, ?, ?)",
+            (str(user.id), 'purchase_climbing_location', json.dumps(tx), location_id)
+        )
+        conn.commit()
         return {'status': 'success', 'tx_type': 'purchase_climbing_location', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in purchaseClimbingLocation: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the location ID is valid. 😅"}
     except Exception as e:
+        logger.error(f"Error in purchase_climbing_location_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def create_tournament_tx(wallet_address, entry_fee, user):
     try:
+        profile = contract.functions.profiles(wallet_address).call()
+        if not profile[0]:
+            return {'status': 'error', 'message': "You need to create a profile first with /createprofile! 🪙"}
+        
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'data': contract.encodeABI(
+                    fn_name='createTournament',
+                    args=[entry_fee]
+                )
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in createTournament: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure you have a profile. 😅"}
+        
         gas_estimate = contract.functions.createTournament(entry_fee).estimate_gas({'from': wallet_address})
         gas_limit = int(gas_estimate * 1.2)
         gas_fees = await get_gas_fees(wallet_address)
@@ -655,14 +839,25 @@ async def create_tournament_tx(wallet_address, entry_fee, user):
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
-        return {'status': 'success', 'tx_data': tx}
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data) VALUES (?, ?, ?)",
+            (str(user.id), 'create_tournament', json.dumps(tx))
+        )
+        conn.commit()
+        return {'status': 'success', 'tx_type': 'create_tournament', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in createTournament: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure you have a profile. 😅"}
     except Exception as e:
+        logger.error(f"Error in create_tournament_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def join_tournament_tx(wallet_address, tournament_id, user):
     try:
+        profile = contract.functions.profiles(wallet_address).call()
+        if not profile[0]:
+            return {'status': 'error', 'message': "You need to create a profile first with /createprofile! 🪙"}
+        
         tournament = contract.functions.tournaments(tournament_id).call()
         entry_fee = tournament[0]
         balance = tours_contract.functions.balanceOf(wallet_address).call()
@@ -686,6 +881,11 @@ async def join_tournament_tx(wallet_address, tournament_id, user):
                 'maxFeePerGas': gas_fees['maxFeePerGas'],
                 'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
             })
+            cursor.execute(
+                "INSERT INTO pending_txs (user_id, tx_type, tx_data, tournament_id) VALUES (?, ?, ?, ?)",
+                (str(user.id), 'approve_tours', json.dumps(approve_tx), tournament_id)
+            )
+            conn.commit()
             return {
                 'status': 'success',
                 'tx_type': 'approve_tours',
@@ -695,6 +895,19 @@ async def join_tournament_tx(wallet_address, tournament_id, user):
                     'tournament_id': tournament_id
                 }
             }
+        
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'data': contract.encodeABI(
+                    fn_name='joinTournament',
+                    args=[tournament_id]
+                )
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in joinTournament: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the tournament ID is valid. 😅"}
         
         gas_estimate = contract.functions.joinTournament(tournament_id).estimate_gas({'from': wallet_address})
         gas_limit = int(gas_estimate * 1.2)
@@ -708,10 +921,17 @@ async def join_tournament_tx(wallet_address, tournament_id, user):
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data, tournament_id) VALUES (?, ?, ?, ?)",
+            (str(user.id), 'join_tournament', json.dumps(tx), tournament_id)
+        )
+        conn.commit()
         return {'status': 'success', 'tx_type': 'join_tournament', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in joinTournament: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the tournament ID is valid. 😅"}
     except Exception as e:
+        logger.error(f"Error in join_tournament_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def end_tournament_tx(wallet_address, tournament_id, winner_address, user):
@@ -720,6 +940,19 @@ async def end_tournament_tx(wallet_address, tournament_id, winner_address, user)
             return {'status': 'error', 'message': "Only the owner can end tournaments! 🚫"}
         if not w3.is_address(winner_address):
             return {'status': 'error', 'message': "Invalid winner address! 😕"}
+        
+        try:
+            w3.eth.call({
+                'from': wallet_address,
+                'to': CONTRACT_ADDRESS,
+                'data': contract.encodeABI(
+                    fn_name='endTournament',
+                    args=[tournament_id, winner_address]
+                )
+            })
+        except ContractLogicError as e:
+            logger.error(f"Simulation error in endTournament: {str(e)}")
+            return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the tournament ID is valid. 😅"}
         
         gas_estimate = contract.functions.endTournament(tournament_id, winner_address).estimate_gas({'from': wallet_address})
         gas_limit = int(gas_estimate * 1.2)
@@ -733,10 +966,17 @@ async def end_tournament_tx(wallet_address, tournament_id, winner_address, user)
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
-        return {'status': 'success', 'tx_data': tx}
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data, tournament_id) VALUES (?, ?, ?, ?)",
+            (str(user.id), 'end_tournament', json.dumps(tx), tournament_id)
+        )
+        conn.commit()
+        return {'status': 'success', 'tx_type': 'end_tournament', 'tx_data': tx}
     except ContractLogicError as e:
+        logger.error(f"Contract error in endTournament: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the tournament ID is valid. 😅"}
     except Exception as e:
+        logger.error(f"Error in end_tournament_tx: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def get_climbing_locations():
@@ -752,6 +992,7 @@ async def get_climbing_locations():
             )
         return tour_list
     except Exception as e:
+        logger.error(f"Error in get_climbing_locations: {str(e)}")
         return []
 
 async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
@@ -759,8 +1000,13 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
         tx_hash = w3.eth.send_raw_transaction(signed_tx_hex)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
         
+        cursor.execute("DELETE FROM pending_txs WHERE user_id = ? AND tx_type = ?", (str(user.id), pending_tx['tx_type']))
+        conn.commit()
+        
         if receipt.status == 1:
-            if pending_tx['type'] == 'create_profile':
+            if pending_tx['tx_type'] == 'create_profile':
+                cursor.execute("UPDATE sessions SET wallet_address = ? WHERE user_id = ?", (pending_tx['wallet_address'], str(user.id)))
+                conn.commit()
                 return {
                     'status': 'success',
                     'message': (
@@ -769,13 +1015,13 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                     ),
                     'group_message': f"New climber {user.username} joined EmpowerTours! 🧗 Tx: {tx_hash.hex()}"
                 }
-            elif pending_tx['type'] == 'journal_entry':
+            elif pending_tx['tx_type'] == 'journal_entry':
                 return {
                     'status': 'success',
                     'message': f"Journal entry logged, {user.first_name}! You earned 5 $TOURS! 🎉 Tx: {tx_hash.hex()}",
                     'group_message': f"{user.username} shared a climb journal! 🪨 Check it out! Tx: {tx_hash.hex()}"
                 }
-            elif pending_tx['type'] == 'approve_tours' and 'next_tx' in pending_tx:
+            elif pending_tx['tx_type'] == 'approve_tours' and 'next_tx' in pending_tx:
                 next_tx_type = pending_tx['next_tx']['type']
                 gas_fees = await get_gas_fees(pending_tx['wallet_address'])
                 nonce = w3.eth.get_transaction_count(pending_tx['wallet_address'])
@@ -790,23 +1036,32 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         'chainId': 10143,
                         'from': pending_tx['wallet_address'],
                         'nonce': nonce,
-                        'gas': int(pending_tx['tx_data']['gas'] * 1.2),
+                        'gas': 200000,
                         'maxFeePerGas': gas_fees['maxFeePerGas'],
                         'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
                     })
-                    pending_tx.update({
-                        'type': 'create_climbing_location',
+                    cursor.execute(
+                        "INSERT INTO pending_txs (user_id, tx_type, tx_data, name, difficulty, latitude, longitude, photo_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (str(user.id), 'create_climbing_location', json.dumps(next_tx), 
+                         pending_tx['next_tx']['name'], pending_tx['next_tx']['difficulty'],
+                         pending_tx['next_tx']['latitude'], pending_tx['next_tx']['longitude'],
+                         pending_tx['next_tx']['photo_hash'])
+                    )
+                    conn.commit()
+                    response = requests.post(f"{API_BASE_URL}/sign", json={
+                        'user_id': str(user.id),
                         'tx_data': next_tx
                     })
-                    return {
-                        'status': 'success',
-                        'message': (
-                            f"$TOURS approval successful! Now copy this transaction to your wallet:\n"
-                            f"```json\n{json.dumps(next_tx, indent=2)}\n```\n"
-                            f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                        ),
-                        'tx_data': next_tx
-                    }
+                    if response.status_code == 200:
+                        return {
+                            'status': 'success',
+                            'message': (
+                                f"$TOURS approval successful! Please visit the WalletConnect page to sign the climb creation transaction (10 $TOURS).\n"
+                                f"If not redirected, use /connectwallet to get the link again."
+                            )
+                        }
+                    else:
+                        return {'status': 'error', 'message': "Failed to initiate transaction signing. Try again! 😅"}
                 elif next_tx_type == 'purchase_climbing_location':
                     next_tx = contract.functions.purchaseClimbingLocation(
                         pending_tx['next_tx']['location_id']
@@ -814,24 +1069,29 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         'chainId': 10143,
                         'from': pending_tx['wallet_address'],
                         'nonce': nonce,
-                        'gas': int(pending_tx['tx_data']['gas'] * 1.2),
+                        'gas': 100000,
                         'maxFeePerGas': gas_fees['maxFeePerGas'],
                         'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
                     })
-                    pending_tx.update({
-                        'type': 'purchase_climbing_location',
-                        'location_id': pending_tx['next_tx']['location_id'],
+                    cursor.execute(
+                        "INSERT INTO pending_txs (user_id, tx_type, tx_data, location_id) VALUES (?, ?, ?, ?)",
+                        (str(user.id), 'purchase_climbing_location', json.dumps(next_tx), pending_tx['next_tx']['location_id'])
+                    )
+                    conn.commit()
+                    response = requests.post(f"{API_BASE_URL}/sign", json={
+                        'user_id': str(user.id),
                         'tx_data': next_tx
                     })
-                    return {
-                        'status': 'success',
-                        'message': (
-                            f"$TOURS approval successful! Now copy this transaction to your wallet:\n"
-                            f"```json\n{json.dumps(next_tx, indent=2)}\n```\n"
-                            f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                        ),
-                        'tx_data': next_tx
-                    }
+                    if response.status_code == 200:
+                        return {
+                            'status': 'success',
+                            'message': (
+                                f"$TOURS approval successful! Please visit the WalletConnect page to sign the climb purchase transaction (10 $TOURS).\n"
+                                f"If not redirected, use /connectwallet to get the link again."
+                            )
+                        }
+                    else:
+                        return {'status': 'error', 'message': "Failed to initiate transaction signing. Try again! 😅"}
                 elif next_tx_type == 'join_tournament':
                     next_tx = contract.functions.joinTournament(
                         pending_tx['next_tx']['tournament_id']
@@ -839,25 +1099,30 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         'chainId': 10143,
                         'from': pending_tx['wallet_address'],
                         'nonce': nonce,
-                        'gas': int(pending_tx['tx_data']['gas'] * 1.2),
+                        'gas': 100000,
                         'maxFeePerGas': gas_fees['maxFeePerGas'],
                         'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
                     })
-                    pending_tx.update({
-                        'type': 'join_tournament',
-                        'tournament_id': pending_tx['next_tx']['tournament_id'],
+                    cursor.execute(
+                        "INSERT INTO pending_txs (user_id, tx_type, tx_data, tournament_id) VALUES (?, ?, ?, ?)",
+                        (str(user.id), 'join_tournament', json.dumps(next_tx), pending_tx['next_tx']['tournament_id'])
+                    )
+                    conn.commit()
+                    response = requests.post(f"{API_BASE_URL}/sign", json={
+                        'user_id': str(user.id),
                         'tx_data': next_tx
                     })
-                    return {
-                        'status': 'success',
-                        'message': (
-                            f"$TOURS approval successful! Now copy this transaction to your wallet:\n"
-                            f"```json\n{json.dumps(next_tx, indent=2)}\n```\n"
-                            f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                        ),
-                        'tx_data': next_tx
-                    }
-            elif pending_tx['type'] == 'create_climbing_location':
+                    if response.status_code == 200:
+                        return {
+                            'status': 'success',
+                            'message': (
+                                f"$TOURS approval successful! Please visit the WalletConnect page to sign the tournament join transaction.\n"
+                                f"If not redirected, use /connectwallet to get the link again."
+                            )
+                        }
+                    else:
+                        return {'status': 'error', 'message': "Failed to initiate transaction signing. Try again! 😅"}
+            elif pending_tx['tx_type'] == 'create_climbing_location':
                 location_id = contract.functions.getClimbingLocationCount().call() - 1
                 location = contract.functions.climbingLocations(location_id).call()
                 return {
@@ -873,13 +1138,19 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         f"Tx: {tx_hash}"
                     )
                 }
-            elif pending_tx['type'] == 'purchase_climbing_location':
+            elif pending_tx['tx_type'] == 'purchase_climbing_location':
                 return {
                     'status': 'success',
                     'message': f"Climb #{pending_tx['location_id']} purchased, {user.first_name}! 🎉 Tx: {tx_hash.hex()}",
                     'group_message': f"{user.username} purchased climb #{pending_tx['location_id']}! 🪨 Tx: {tx_hash.hex()}"
                 }
-            elif pending_tx['type'] == 'create_tournament':
+            elif pending_tx['tx_type'] == 'add_comment':
+                return {
+                    'status': 'success',
+                    'message': f"Comment added to entry #{pending_tx['location_id']}, {user.first_name}! 🎉 Tx: {tx_hash.hex()}",
+                    'group_message': f"{user.username} commented on journal entry #{pending_tx['location_id']}! 🗣️ Tx: {tx_hash.hex()}"
+                }
+            elif pending_tx['tx_type'] == 'create_tournament':
                 tournament_id = contract.functions.getTournamentCount().call() - 1
                 return {
                     'status': 'success',
@@ -890,13 +1161,13 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         f"Tx: {tx_hash.hex()}"
                     )
                 }
-            elif pending_tx['type'] == 'join_tournament':
+            elif pending_tx['tx_type'] == 'join_tournament':
                 return {
                     'status': 'success',
                     'message': f"Joined tournament #{pending_tx['tournament_id']}, {user.first_name}! 🏆 Tx: {tx_hash.hex()}",
                     'group_message': f"{user.username} joined tournament #{pending_tx['tournament_id']}! 🏆 Tx: {tx_hash.hex()}"
                 }
-            elif pending_tx['type'] == 'end_tournament':
+            elif pending_tx['tx_type'] == 'end_tournament':
                 return {
                     'status': 'success',
                     'message': f"Tournament #{pending_tx['tournament_id']} ended, {user.first_name}! 🏆 Tx: {tx_hash.hex()}",
@@ -905,4 +1176,5 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
         else:
             return {'status': 'error', 'message': "Transaction failed. Ensure the signed transaction is valid and try again! 💪"}
     except Exception as e:
+        logger.error(f"Error in broadcast_transaction: {str(e)}")
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
