@@ -1,15 +1,17 @@
 import os
 import asyncio
 import logging
+import json
+import requests
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from telegram import Update
 from dotenv import load_dotenv
 from contract import (
     create_profile_tx, add_journal_entry_tx, add_comment_tx, create_climbing_location_tx,
     purchase_climbing_location_tx, create_tournament_tx, join_tournament_tx, end_tournament_tx,
-    get_climbing_locations, broadcast_transaction
+    get_climbing_locations
 )
-from utils import get_message, generate_qr_code
+from utils import get_message
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -18,6 +20,8 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://your-bot-api.com")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://empowertours-connect.vercel.app")
 CHAT_HANDLE = "@empowertourschat"
 
 async def start(update: Update, context):
@@ -26,9 +30,7 @@ async def start(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /start in the chat to begin! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /start in the chat to begin! 🧗")
         return
     await message.reply_text(
         """Welcome to EmpowerTours, your rock climbing adventure hub! 🌄
@@ -43,9 +45,7 @@ async def tutorial(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /tutorial in the chat to learn how to start! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /tutorial in the chat to learn how to start! 🧗")
         return
 
     tutorial_text = """🌟 Welcome to EmpowerTours Tutorial! 🌟
@@ -64,13 +64,11 @@ Let's get you climbing on the Monad blockchain! Follow these steps:
    - Get testnet $MON from the faucet: <a href="https://testnet.monad.xyz/faucet">Monad Faucet</a>
 
 2️⃣ **Connect Your Wallet**:
-   - Use /connectwallet to generate a WalletConnect QR code or deep link.
-   - Scan the QR code or use the link to connect your wallet (MetaMask, Phantom, or multi-sig).
-   - Confirm your wallet address with /setwallet <address>.
+   - Use /connectwallet to get a link to connect your wallet (MetaMask, Phantom, or multi-sig) via WalletConnect.
+   - Follow the link to connect and sign transactions directly in your wallet.
 
 3️⃣ **Create Your Profile**:
-   - Use /createprofile to generate a transaction (1 $MON fee).
-   - Copy the transaction data, sign it in your wallet, and submit the signed transaction with /sendtx.
+   - Use /createprofile to create your profile (1 $MON fee, signed in your wallet).
 
 4️⃣ **Explore the App**:
    - /journal <description>: Log your climbs and earn $TOURS (send a photo after).
@@ -93,100 +91,26 @@ async def connect_wallet(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /connectwallet in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /connectwallet in the chat! 🧗")
         return
 
     try:
         user = message.from_user
-        session_id = str(uuid.uuid4())
-        wc_uri = f"wc:{session_id}@2?projectId={os.getenv('WALLET_CONNECT_PROJECT_ID')}&relay-protocol=irn"
-        qr_buffer = generate_qr_code(wc_uri)
-
-        context.user_data['wc_session'] = {
-            'user_id': user.id,
-            'session_id': session_id
-        }
-        await message.reply_photo(
-            photo=qr_buffer,
-            caption=(
-                f"Connect your wallet (MetaMask, Phantom, etc.) by scanning this QR code.\n"
-                f"Or use this deep link: <a href=\"{wc_uri}\">Connect Wallet</a>\n"
-                f"After connecting, confirm your wallet address with /setwallet <address>."
-            ),
+        response = requests.post(f"{API_BASE_URL}/connect", json={'user_id': str(user.id)})
+        if response.status_code != 200:
+            await message.reply_text("Failed to initiate wallet connection. Try again! 😅")
+            return
+        response_data = response.json()
+        connect_url = f"{FRONTEND_URL}?userId={user.id}&sessionId={response_data['session_id']}"
+        await message.reply_text(
+            f"Please connect your wallet (MetaMask, Phantom, etc.) by visiting this link:\n"
+            f"<a href=\"{connect_url}\">Connect Wallet</a>\n"
+            f"Follow the instructions to connect and sign transactions directly in your wallet.",
             parse_mode="HTML"
         )
+        context.user_data['wc_session'] = {'user_id': user.id, 'session_id': response_data['session_id']}
     except Exception as e:
         logger.error(f"Error in /connectwallet: {str(e)}")
-        await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
-
-async def set_wallet(update: Update, context):
-    message, update_type = get_message(update)
-    if message is None:
-        logger.warning(f"Received non-message update: {update.to_dict()}")
-        if update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /setwallet in the chat! 🧗"
-            )
-        return
-
-    try:
-        user = message.from_user
-        if not context.args:
-            await message.reply_text(
-                "Please provide your wallet address, e.g., /setwallet 0xYourAddress 🪙"
-            )
-            return
-        wallet_address = context.args[0]
-        if not w3.is_address(wallet_address):
-            await message.reply_text("Invalid wallet address! Use a valid Monad address. 😕")
-            return
-
-        context.user_data['wallet_address'] = wallet_address
-        await message.reply_text(
-            f"Wallet connected successfully: {wallet_address}! 🎉 Now use /createprofile to join EmpowerTours."
-        )
-    except Exception as e:
-        logger.error(f"Error in /setwallet: {str(e)}")
-        await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
-
-async def send_tx(update: Update, context):
-    message, update_type = get_message(update)
-    if message is None:
-        logger.warning(f"Received non-message update: {update.to_dict()}")
-        if update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /sendtx in the chat! 🧗"
-            )
-        return
-
-    try:
-        user = message.from_user
-        if not context.args:
-            await message.reply_text(
-                "Please provide the signed transaction hex, e.g., /sendtx 0xSignedTxHex 🪙"
-            )
-            return
-        signed_tx_hex = context.args[0]
-        pending_tx = context.user_data.get('pending_tx')
-        if not pending_tx or pending_tx['user_id'] != user.id:
-            await message.reply_text(
-                "No pending transaction found or invalid user. Start with /createprofile, /journal, etc. 😕"
-            )
-            return
-
-        result = await broadcast_transaction(signed_tx_hex, pending_tx, user, context)
-        if result['status'] == 'success':
-            await message.reply_text(result['message'])
-            if 'group_message' in result:
-                await context.bot.send_message(chat_id=CHAT_HANDLE, text=result['group_message'])
-        else:
-            await message.reply_text(result['message'])
-    except Exception as e:
-        logger.error(f"Error in /sendtx: {str(e)}")
         await message.reply_text(f"Oops, something went wrong: {str(e)}. Try again! 😅")
 
 async def create_profile(update: Update, context):
@@ -195,37 +119,29 @@ async def create_profile(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /createprofile in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /createprofile in the chat! 🧗")
         return
 
     try:
         user = message.from_user
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         result = await create_profile_tx(wallet_address, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': 'create_profile',
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the profile creation transaction (1 $MON fee).\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
         else:
             await message.reply_text(result['message'])
     except Exception as e:
@@ -238,9 +154,7 @@ async def journal_entry(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /journal in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /journal in the chat! 🧗")
         return
 
     try:
@@ -251,12 +165,10 @@ async def journal_entry(update: Update, context):
             )
             return
         content = " ".join(context.args)
-        content_hash = w3.keccak(text=content).hex()
-
         context.user_data['journal'] = {
             'user_id': user.id,
             'username': user.username,
-            'content_hash': content_hash,
+            'content': content,
             'awaiting_photo': True
         }
         await message.reply_text(
@@ -283,28 +195,23 @@ async def handle_journal_photo(update: Update, context):
 
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
-        result = await add_journal_entry_tx(wallet_address, journal_data['content_hash'], user)
+        content_hash = w3.keccak(text=journal_data['content']).hex()
+        result = await add_journal_entry_tx(wallet_address, content_hash, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': 'journal_entry',
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the journal entry transaction (earns 5 $TOURS).\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
             context.user_data.pop('journal', None)
         else:
             await message.reply_text(result['message'])
@@ -318,9 +225,7 @@ async def add_comment(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /comment in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /comment in the chat! 🧗")
         return
 
     try:
@@ -334,29 +239,22 @@ async def add_comment(update: Update, context):
         comment = " ".join(context.args[1:])
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         result = await add_comment_tx(wallet_address, entry_id, comment, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': 'add_comment',
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
-                'entry_id': entry_id,
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the comment transaction (0.1 $MON).\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
         else:
             await message.reply_text(result['message'])
     except Exception as e:
@@ -369,9 +267,7 @@ async def build_a_climb(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /buildaclimb in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /buildaclimb in the chat! 🧗")
         return
 
     try:
@@ -437,30 +333,22 @@ async def handle_location(update: Update, context):
         photo_hash = build_data['photo_id']
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         result = await create_climbing_location_tx(wallet_address, build_data['name'], build_data['difficulty'], latitude, longitude, photo_hash, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': result['tx_type'],
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
-                'name': build_data['name'],
-                'difficulty': build_data['difficulty'],
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this {result['tx_type'].replace('_', ' ')} transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the {result['tx_type'].replace('_', ' ')} transaction (10 $TOURS).\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
             context.user_data.pop('buildaclimb', None)
         else:
             await message.reply_text(result['message'])
@@ -474,9 +362,7 @@ async def purchase_climb(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /purchaseclimb in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /purchaseclimb in the chat! 🧗")
         return
 
     try:
@@ -487,29 +373,22 @@ async def purchase_climb(update: Update, context):
         location_id = int(context.args[0])
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         result = await purchase_climbing_location_tx(wallet_address, location_id, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': result['tx_type'],
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
-                'location_id': location_id,
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this {result['tx_type'].replace('_', ' ')} transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the {result['tx_type'].replace('_', ' ')} transaction (10 $TOURS).\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
         else:
             await message.reply_text(result['message'])
     except Exception as e:
@@ -522,9 +401,7 @@ async def create_tournament(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /createtournament in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /createtournament in the chat! 🧗")
         return
 
     try:
@@ -535,28 +412,22 @@ async def create_tournament(update: Update, context):
         entry_fee = int(float(context.args[0]) * 10**18)
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         result = await create_tournament_tx(wallet_address, entry_fee, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': 'create_tournament',
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the tournament creation transaction.\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
         else:
             await message.reply_text(result['message'])
     except Exception as e:
@@ -569,9 +440,7 @@ async def join_tournament(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /jointournament in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /jointournament in the chat! 🧗")
         return
 
     try:
@@ -582,29 +451,22 @@ async def join_tournament(update: Update, context):
         tournament_id = int(context.args[0])
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         result = await join_tournament_tx(wallet_address, tournament_id, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': result['tx_type'],
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
-                'tournament_id': tournament_id,
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this {result['tx_type'].replace('_', ' ')} transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the {result['tx_type'].replace('_', ' ')} transaction.\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
         else:
             await message.reply_text(result['message'])
     except Exception as e:
@@ -617,9 +479,7 @@ async def end_tournament(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /endtournament in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /endtournament in the chat! 🧗")
         return
 
     try:
@@ -631,29 +491,22 @@ async def end_tournament(update: Update, context):
         winner_address = context.args[1]
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         result = await end_tournament_tx(wallet_address, tournament_id, winner_address, user)
         if result['status'] == 'success':
-            context.user_data['pending_tx'] = {
-                'type': 'end_tournament',
-                'user_id': user.id,
-                'username': user.username,
-                'wallet_address': wallet_address,
-                'tournament_id': tournament_id,
+            response = requests.post(f"{API_BASE_URL}/sign", json={
+                'user_id': str(user.id),
                 'tx_data': result['tx_data']
-            }
-            qr_buffer = generate_qr_code(json.dumps(result['tx_data']))
-            await message.reply_photo(
-                photo=qr_buffer,
-                caption=(
-                    f"Please copy this transaction to your wallet (MetaMask, Phantom, or multi-sig):\n"
-                    f"```json\n{json.dumps(result['tx_data'], indent=2)}\n```\n"
-                    f"Or scan the QR code to import it. After signing, submit with /sendtx <signed_tx_hex>. 🪙"
-                ),
-                parse_mode="HTML"
-            )
+            })
+            if response.status_code == 200:
+                await message.reply_text(
+                    f"Please visit the WalletConnect page to sign the tournament end transaction.\n"
+                    f"If not redirected, use /connectwallet to get the link again."
+                )
+            else:
+                await message.reply_text("Failed to initiate transaction signing. Try again! 😅")
         else:
             await message.reply_text(result['message'])
     except Exception as e:
@@ -666,15 +519,13 @@ async def balance(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /balance in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /balance in the chat! 🧗")
         return
 
     try:
         wallet_address = context.user_data.get('wallet_address')
         if not wallet_address:
-            await message.reply_text("Connect your wallet with /connectwallet and /setwallet first! 🪙")
+            await message.reply_text("Connect your wallet with /connectwallet first! 🪙")
             return
 
         balance_wei = w3.eth.get_balance(wallet_address)
@@ -698,9 +549,7 @@ async def find_a_climb(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /findaclimb in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /findaclimb in the chat! 🧗")
         return
 
     try:
@@ -724,9 +573,7 @@ async def help_command(update: Update, context):
         logger.warning(f"Received non-message update: {update.to_dict()}")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text(
-                "Use /help in the chat! 🧗"
-            )
+            await update.callback_query.message.reply_text("Use /help in the chat! 🧗")
         return
 
     help_text = """🏔️ EmpowerTours Commands 🧗‍♀️
@@ -734,9 +581,7 @@ async def help_command(update: Update, context):
 /start - Kick off your adventure
 /tutorial - Learn to set up your wallet and profile
 /connectwallet - Connect your wallet (MetaMask, Phantom, etc.)
-/setwallet <address> - Confirm your wallet address
 /createprofile - Join with 1 $MON
-/sendtx <signed_tx_hex> - Submit a signed transaction
 /journal <description> - Log climbs, earn $TOURS
 /comment <entry_id> <text> - Comment on journals (0.1 $MON)
 /buildaclimb <name> <difficulty> - Share a climb (10 $TOURS)
@@ -780,8 +625,6 @@ async def main():
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("tutorial", tutorial))
         app.add_handler(CommandHandler("connectwallet", connect_wallet))
-        app.add_handler(CommandHandler("setwallet", set_wallet))
-        app.add_handler(CommandHandler("sendtx", send_tx))
         app.add_handler(CommandHandler("createprofile", create_profile))
         app.add_handler(CommandHandler("journal", journal_entry))
         app.add_handler(CommandHandler("comment", add_comment))
