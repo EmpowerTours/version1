@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Connect MetaMask</title>
+  <script src="https://cdn.jsdelivr.net/npm/web3@4.5.0/dist/web3.min.js"></script>
+</head>
+<body>
+  <h1>Connect MetaMask</h1>
+  <button onclick="connectWallet()">Connect Wallet</button>
+  <p id="status"></p>
+  <script>
+    async function connectWallet() {
+      if (typeof window.ethereum === 'undefined') {
+        document.getElementById('status').innerText = 'Please install MetaMask!';
+        return;
+      }
+      try {
+        const web3 = new Web3(window.ethereum);
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const userId = new URLSearchParams(window.location.search).get('userId');
+        const walletAddress = accounts[0];
+        const response = await fetch('https://backend-production-79a15.up.railway.app/wallet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, walletAddress })
+        });
+        if (response.ok) {
+          document.getElementById('status').innerText = `Connected: ${walletAddress.slice(0, 6)}...`;
+          setTimeout(() => window.close(), 2000);
+        } else {
+          document.getElementById('status').innerText = 'Failed to connect wallet. Try again!';
+        }
+      } catch (error) {
+        document.getElementById('status').innerText = `Error: ${error.message}`;
+      }
+    }
+  </script>
+</body>
+</html>
