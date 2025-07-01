@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-MONAD_RPC_URL = os.getenv("MONAD_RPC_URL", "https://testnet-rpc.monad.xyz")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x8ed8fBEB935e71dC501878635c78F28bBF084227")
-TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS", "0x2Da15A8B55BE310A7AB8EB0010506AB30CD6CBcf")
-OWNER_ADDRESS = os.getenv("OWNER_ADDRESS", "0x5fE8373C839948bFCB707A8a8A75A16E2634A725")
-LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS", "0x3de6FCEECd5d05363D80A77963Edd3787c96E593")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://backend-production-79a15.up.railway.app")
+MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
+TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRES")
+OWNER_ADDRESS = os.getenv("OWNER_ADDRES")
+LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
+API_BASE_URL = os.getenv("API_BASE_URL")
 CHAT_HANDLE = os.getenv("CHAT_HANDLE", "@empowertourschat")
 
 # Connect to Monad testnet
@@ -746,7 +746,7 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
             (str(user.id), 'create_climbing_location', json.dumps(tx), name, difficulty, latitude, longitude, photo_hash)
         )
         conn.commit()
-        return {'status': 'success', 'tx_type': 'create_climbing_location', 'tx_data': tx}
+        return {'status': "success", 'tx_type': 'create_climbing_location', 'tx_data': tx}
     except ContractLogicError as e:
         logger.error(f"Contract error in createClimbingLocation: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure you have a profile and sufficient $TOURS allowance. 😅"}
