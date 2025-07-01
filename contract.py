@@ -6,6 +6,7 @@ from web3 import Web3
 from web3.exceptions import ContractLogicError
 from dotenv import load_dotenv
 import requests
+import time
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -13,430 +14,450 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
+MONAD_RPC_URL = os.getenv("MONAD_RPC_URL", "https://testnet-rpc.monad.xyz")
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
-TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRES")
-OWNER_ADDRESS = os.getenv("OWNER_ADDRES")
+TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
+OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
 LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
 API_BASE_URL = os.getenv("API_BASE_URL")
 CHAT_HANDLE = os.getenv("CHAT_HANDLE", "@empowertourschat")
 
-# Connect to Monad testnet
-w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL))
-if not w3.is_connected():
-    logger.error("Failed to connect to Monad testnet")
-    raise Exception("Web3 connection failed")
+# Initialize Web3 with retry logic
+w3 = None
+contract = None
+tours_contract = None
 
-# EmpowerTours contract ABI
-CONTRACT_ABI = [
-    {
-        "inputs": [
-            {"internalType": "address", "name": "_toursToken", "type": "address"},
-            {"internalType": "address", "name": "_legacyWallet", "type": "address"}
-        ],
-        "stateMutability": "nonpayable",
-        "type": "constructor"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "commenter", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "CommentAdded",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "creator", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "name", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "ClimbingLocationCreated",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "author", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "JournalEntryAdded",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "buyer", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "LocationPurchased",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "address", "name": "previousOwner", "type": "address"},
-            {"indexed": True, "internalType": "address", "name": "newOwner", "type": "address"}
-        ],
-        "name": "OwnershipTransferred",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "address", "name": "user", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "name": "ProfileCreated",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "entryFee", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "startTime", "type": "uint256"}
-        ],
-        "name": "TournamentCreated",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "winner", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "pot", "type": "uint256"}
-        ],
-        "name": "TournamentEnded",
-        "type": "event"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "participant", "type": "address"}
-        ],
-        "name": "TournamentJoined",
-        "type": "event"
-    },
-    {
-        "inputs": [
-            {"internalType": "string", "name": "contentHash", "type": "string"}
-        ],
-        "name": "addJournalEntry",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"internalType": "string", "name": "contentHash", "type": "string"}
-        ],
-        "name": "addComment",
-        "outputs": [],
-        "stateMutability": "payable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "string", "name": "name", "type": "string"},
-            {"internalType": "string", "name": "difficulty", "type": "string"},
-            {"internalType": "int256", "name": "latitude", "type": "int256"},
-            {"internalType": "int256", "name": "longitude", "type": "int256"},
-            {"internalType": "string", "name": "photoHash", "type": "string"}
-        ],
-        "name": "createClimbingLocation",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "createProfile",
-        "outputs": [],
-        "stateMutability": "payable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "entryFee", "type": "uint256"}
-        ],
-        "name": "createTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"internalType": "address", "name": "winner", "type": "address"}
-        ],
-        "name": "endTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "getClimbingLocationCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "entryId", "type": "uint256"}
-        ],
-        "name": "getCommentCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "getJournalEntryCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "getTournamentCount",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"}
-        ],
-        "name": "joinTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
-        ],
-        "name": "purchaseClimbingLocation",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "climbingLocations",
-        "outputs": [
-            {"internalType": "address", "name": "creator", "type": "address"},
-            {"internalType": "string", "name": "name", "type": "string"},
-            {"internalType": "string", "name": "difficulty", "type": "string"},
-            {"internalType": "int256", "name": "latitude", "type": "int256"},
-            {"internalType": "int256", "name": "longitude", "type": "int256"},
-            {"internalType": "string", "name": "photoHash", "type": "string"},
-            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "commentFee",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"},
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "journalComments",
-        "outputs": [
-            {"internalType": "address", "name": "commenter", "type": "address"},
-            {"internalType": "string", "name": "contentHash", "type": "string"},
-            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "journalEntries",
-        "outputs": [
-            {"internalType": "address", "name": "author", "type": "address"},
-            {"internalType": "string", "name": "contentHash", "type": "string"},
-            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "journalReward",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "legacyWallet",
-        "outputs": [
-            {"internalType": "address", "name": "", "type": "address"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "locationCreationCost",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "owner",
-        "outputs": [
-            {"internalType": "address", "name": "", "type": "address"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "address", "name": "", "type": "address"}
-        ],
-        "name": "profiles",
-        "outputs": [
-            {"internalType": "bool", "name": "exists", "type": "bool"},
-            {"internalType": "uint256", "name": "journalCount", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "profileFee",
-        "outputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "renounceOwnership",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "uint256", "name": "", "type": "uint256"}
-        ],
-        "name": "tournaments",
-        "outputs": [
-            {"internalType": "uint256", "name": "entryFee", "type": "uint256"},
-            {"internalType": "uint256", "name": "totalPot", "type": "uint256"},
-            {"internalType": "address", "name": "winner", "type": "address"},
-            {"internalType": "bool", "name": "isActive", "type": "bool"},
-            {"internalType": "uint256", "name": "startTime", "type": "uint256"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "toursToken",
-        "outputs": [
-            {"internalType": "contract IERC20", "name": "", "type": "address"}
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {"internalType": "address", "name": "newOwner", "type": "address"}
-        ],
-        "name": "transferOwnership",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    }
-]
+def initialize_web3():
+    global w3, contract, tours_contract
+    retries = 3
+    for attempt in range(retries):
+        try:
+            w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL, request_kwargs={'timeout': 10}))
+            if w3.is_connected():
+                logger.info("Successfully connected to Monad testnet")
+                # EmpowerTours contract ABI
+                CONTRACT_ABI = [
+                    {
+                        "inputs": [
+                            {"internalType": "address", "name": "_toursToken", "type": "address"},
+                            {"internalType": "address", "name": "_legacyWallet", "type": "address"}
+                        ],
+                        "stateMutability": "nonpayable",
+                        "type": "constructor"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+                            {"indexed": True, "internalType": "address", "name": "commenter", "type": "address"},
+                            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
+                            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "name": "CommentAdded",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+                            {"indexed": True, "internalType": "address", "name": "creator", "type": "address"},
+                            {"indexed": False, "internalType": "string", "name": "name", "type": "string"},
+                            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "name": "ClimbingLocationCreated",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+                            {"indexed": True, "internalType": "address", "name": "author", "type": "address"},
+                            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
+                            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "name": "JournalEntryAdded",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+                            {"indexed": True, "internalType": "address", "name": "buyer", "type": "address"},
+                            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "name": "LocationPurchased",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "address", "name": "previousOwner", "type": "address"},
+                            {"indexed": True, "internalType": "address", "name": "newOwner", "type": "address"}
+                        ],
+                        "name": "OwnershipTransferred",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "address", "name": "user", "type": "address"},
+                            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "name": "ProfileCreated",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+                            {"indexed": False, "internalType": "uint256", "name": "entryFee", "type": "uint256"},
+                            {"indexed": False, "internalType": "uint256", "name": "startTime", "type": "uint256"}
+                        ],
+                        "name": "TournamentCreated",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+                            {"indexed": True, "internalType": "address", "name": "winner", "type": "address"},
+                            {"indexed": False, "internalType": "uint256", "name": "pot", "type": "uint256"}
+                        ],
+                        "name": "TournamentEnded",
+                        "type": "event"
+                    },
+                    {
+                        "anonymous": False,
+                        "inputs": [
+                            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+                            {"indexed": True, "internalType": "address", "name": "participant", "type": "address"}
+                        ],
+                        "name": "TournamentJoined",
+                        "type": "event"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "string", "name": "contentHash", "type": "string"}
+                        ],
+                        "name": "addJournalEntry",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "entryId", "type": "uint256"},
+                            {"internalType": "string", "name": "contentHash", "type": "string"}
+                        ],
+                        "name": "addComment",
+                        "outputs": [],
+                        "stateMutability": "payable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "string", "name": "name", "type": "string"},
+                            {"internalType": "string", "name": "difficulty", "type": "string"},
+                            {"internalType": "int256", "name": "latitude", "type": "int256"},
+                            {"internalType": "int256", "name": "longitude", "type": "int256"},
+                            {"internalType": "string", "name": "photoHash", "type": "string"}
+                        ],
+                        "name": "createClimbingLocation",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "createProfile",
+                        "outputs": [],
+                        "stateMutability": "payable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "entryFee", "type": "uint256"}
+                        ],
+                        "name": "createTournament",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+                            {"internalType": "address", "name": "winner", "type": "address"}
+                        ],
+                        "name": "endTournament",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "getClimbingLocationCount",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "entryId", "type": "uint256"}
+                        ],
+                        "name": "getCommentCount",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "getJournalEntryCount",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "getTournamentCount",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"}
+                        ],
+                        "name": "joinTournament",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
+                        ],
+                        "name": "purchaseClimbingLocation",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "name": "climbingLocations",
+                        "outputs": [
+                            {"internalType": "address", "name": "creator", "type": "address"},
+                            {"internalType": "string", "name": "name", "type": "string"},
+                            {"internalType": "string", "name": "difficulty", "type": "string"},
+                            {"internalType": "int256", "name": "latitude", "type": "int256"},
+                            {"internalType": "int256", "name": "longitude", "type": "int256"},
+                            {"internalType": "string", "name": "photoHash", "type": "string"},
+                            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "commentFee",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"},
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "name": "journalComments",
+                        "outputs": [
+                            {"internalType": "address", "name": "commenter", "type": "address"},
+                            {"internalType": "string", "name": "contentHash", "type": "string"},
+                            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "name": "journalEntries",
+                        "outputs": [
+                            {"internalType": "address", "name": "author", "type": "address"},
+                            {"internalType": "string", "name": "contentHash", "type": "string"},
+                            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "journalReward",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "legacyWallet",
+                        "outputs": [
+                            {"internalType": "address", "name": "", "type": "address"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "locationCreationCost",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "owner",
+                        "outputs": [
+                            {"internalType": "address", "name": "", "type": "address"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "address", "name": "", "type": "address"}
+                        ],
+                        "name": "profiles",
+                        "outputs": [
+                            {"internalType": "bool", "name": "exists", "type": "bool"},
+                            {"internalType": "uint256", "name": "journalCount", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "profileFee",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "renounceOwnership",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "uint256", "name": "", "type": "uint256"}
+                        ],
+                        "name": "tournaments",
+                        "outputs": [
+                            {"internalType": "uint256", "name": "entryFee", "type": "uint256"},
+                            {"internalType": "uint256", "name": "totalPot", "type": "uint256"},
+                            {"internalType": "address", "name": "winner", "type": "address"},
+                            {"internalType": "bool", "name": "isActive", "type": "bool"},
+                            {"internalType": "uint256", "name": "startTime", "type": "uint256"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [],
+                        "name": "toursToken",
+                        "outputs": [
+                            {"internalType": "contract IERC20", "name": "", "type": "address"}
+                        ],
+                        "stateMutability": "view",
+                        "type": "function"
+                    },
+                    {
+                        "inputs": [
+                            {"internalType": "address", "name": "newOwner", "type": "address"}
+                        ],
+                        "name": "transferOwnership",
+                        "outputs": [],
+                        "stateMutability": "nonpayable",
+                        "type": "function"
+                    }
+                ]
 
-# ToursToken ABI
-TOURS_ABI = [
-    {
-        "constant": False,
-        "inputs": [
-            {"name": "_to", "type": "address"},
-            {"name": "_value", "type": "uint256"}
-        ],
-        "name": "transfer",
-        "outputs": [{"name": "", "type": "bool"}],
-        "type": "function"
-    },
-    {
-        "constant": True,
-        "inputs": [{"name": "_owner", "type": "address"}],
-        "name": "balanceOf",
-        "outputs": [{"name": "balance", "type": "uint256"}],
-        "type": "function"
-    },
-    {
-        "constant": False,
-        "inputs": [
-            {"name": "_spender", "type": "address"},
-            {"name": "_value", "type": "uint256"}
-        ],
-        "name": "approve",
-        "outputs": [{"name": "", "type": "bool"}],
-        "type": "function"
-    },
-    {
-        "constant": True,
-        "inputs": [
-            {"name": "_owner", "type": "address"},
-            {"name": "_spender", "type": "address"}
-        ],
-        "name": "allowance",
-        "outputs": [{"name": "", "type": "uint256"}],
-        "type": "function"
-    }
-]
+                # ToursToken ABI
+                TOURS_ABI = [
+                    {
+                        "constant": False,
+                        "inputs": [
+                            {"name": "_to", "type": "address"},
+                            {"name": "_value", "type": "uint256"}
+                        ],
+                        "name": "transfer",
+                        "outputs": [{"name": "", "type": "bool"}],
+                        "type": "function"
+                    },
+                    {
+                        "constant": True,
+                        "inputs": [{"name": "_owner", "type": "address"}],
+                        "name": "balanceOf",
+                        "outputs": [{"name": "balance", "type": "uint256"}],
+                        "type": "function"
+                    },
+                    {
+                        "constant": False,
+                        "inputs": [
+                            {"name": "_spender", "type": "address"},
+                            {"name": "_value", "type": "uint256"}
+                        ],
+                        "name": "approve",
+                        "outputs": [{"name": "", "type": "bool"}],
+                        "type": "function"
+                    },
+                    {
+                        "constant": True,
+                        "inputs": [
+                            {"name": "_owner", "type": "address"},
+                            {"name": "_spender", "type": "address"}
+                        ],
+                        "name": "allowance",
+                        "outputs": [{"name": "", "type": "uint256"}],
+                        "type": "function"
+                    }
+                ]
 
-# Initialize contracts
-contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
-tours_contract = w3.eth.contract(address=TOURS_TOKEN_ADDRESS, abi=TOURS_ABI)
+                # Initialize contracts
+                contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
+                tours_contract = w3.eth.contract(address=TOURS_TOKEN_ADDRESS, abi=TOURS_ABI)
+                logger.info("Contracts initialized successfully")
+                return True
+            else:
+                logger.warning(f"Web3 connection failed on attempt {attempt + 1}/{retries}")
+                time.sleep(5)  # Wait before retrying
+        except Exception as e:
+            logger.error(f"Error connecting to Web3 on attempt {attempt + 1}/{retries}: {str(e)}")
+            time.sleep(5)
+    logger.error("All Web3 connection attempts failed. Proceeding without blockchain functionality.")
+    return False
+
+# Initialize Web3 and contracts
+initialize_web3()
 
 # Initialize SQLite database
 conn = sqlite3.connect('empowertours.db')
@@ -465,6 +486,12 @@ cursor.execute('''
 conn.commit()
 
 async def get_gas_fees(wallet_address):
+    if not w3:
+        logger.error("Web3 not available for gas fee calculation")
+        return {
+            'maxFeePerGas': 2 * 10**9,  # 2 gwei fallback
+            'maxPriorityFeePerGas': 1 * 10**9  # 1 gwei fallback
+        }
     try:
         base_fee = w3.eth.get_block('latest')['baseFeePerGas']
         max_priority_fee = w3.eth.max_priority_fee
@@ -476,11 +503,13 @@ async def get_gas_fees(wallet_address):
     except Exception as e:
         logger.error(f"Error fetching gas fees for {wallet_address}: {str(e)}")
         return {
-            'maxFeePerGas': w3.to_wei('2', 'gwei'),
-            'maxPriorityFeePerGas': w3.to_wei('1', 'gwei')
+            'maxFeePerGas': 2 * 10**9,
+            'maxPriorityFeePerGas': 1 * 10**9
         }
 
 async def create_profile_tx(wallet_address, user):
+    if not w3 or not contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         profile = contract.functions.profiles(wallet_address).call()
         if profile[0]:
@@ -561,6 +590,8 @@ async def create_profile_tx(wallet_address, user):
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def add_journal_entry_tx(wallet_address, content_hash, user):
+    if not w3 or not contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         profile = contract.functions.profiles(wallet_address).call()
         if not profile[0]:
@@ -602,6 +633,8 @@ async def add_journal_entry_tx(wallet_address, content_hash, user):
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def add_comment_tx(wallet_address, entry_id, comment, user):
+    if not w3 or not contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         profile = contract.functions.profiles(wallet_address).call()
         if not profile[0]:
@@ -663,6 +696,8 @@ async def add_comment_tx(wallet_address, entry_id, comment, user):
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def create_climbing_location_tx(wallet_address, name, difficulty, latitude, longitude, photo_hash, user):
+    if not w3 or not contract or not tours_contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         profile = contract.functions.profiles(wallet_address).call()
         if not profile[0]:
@@ -746,7 +781,7 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
             (str(user.id), 'create_climbing_location', json.dumps(tx), name, difficulty, latitude, longitude, photo_hash)
         )
         conn.commit()
-        return {'status': "success", 'tx_type': 'create_climbing_location', 'tx_data': tx}
+        return {'status': 'success', 'tx_type': 'create_climbing_location', 'tx_data': tx}
     except ContractLogicError as e:
         logger.error(f"Contract error in createClimbingLocation: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure you have a profile and sufficient $TOURS allowance. 😅"}
@@ -755,6 +790,8 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def purchase_climbing_location_tx(wallet_address, location_id, user):
+    if not w3 or not contract or not tours_contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         profile = contract.functions.profiles(wallet_address).call()
         if not profile[0]:
@@ -836,6 +873,8 @@ async def purchase_climbing_location_tx(wallet_address, location_id, user):
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def create_tournament_tx(wallet_address, entry_fee, user):
+    if not w3 or not contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         profile = contract.functions.profiles(wallet_address).call()
         if not profile[0]:
@@ -880,6 +919,8 @@ async def create_tournament_tx(wallet_address, entry_fee, user):
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def join_tournament_tx(wallet_address, tournament_id, user):
+    if not w3 or not contract or not tours_contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         profile = contract.functions.profiles(wallet_address).call()
         if not profile[0]:
@@ -962,6 +1003,8 @@ async def join_tournament_tx(wallet_address, tournament_id, user):
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def end_tournament_tx(wallet_address, tournament_id, winner_address, user):
+    if not w3 or not contract:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         if wallet_address.lower() != OWNER_ADDRESS.lower():
             return {'status': 'error', 'message': "Only the owner can end tournaments! 🚫"}
@@ -1007,6 +1050,8 @@ async def end_tournament_tx(wallet_address, tournament_id, winner_address, user)
         return {'status': 'error', 'message': f"Oops, something went wrong: {str(e)}. Try again! 😅"}
 
 async def get_climbing_locations():
+    if not w3 or not contract:
+        return []
     try:
         location_count = contract.functions.getClimbingLocationCount().call()
         tour_list = []
@@ -1023,6 +1068,8 @@ async def get_climbing_locations():
         return []
 
 async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
+    if not w3:
+        return {'status': 'error', 'message': "Blockchain connection unavailable. Try again later! 😅"}
     try:
         tx_hash = w3.eth.send_raw_transaction(signed_tx_hex)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
