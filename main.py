@@ -1,4 +1,5 @@
 import logging
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 import sqlite3
@@ -13,8 +14,15 @@ try:
     app = FastAPI()
     logger.info("FastAPI app initialized successfully")
 
+    # Verify public directory exists
+    public_dir = "public"
+    if not os.path.exists(public_dir):
+        logger.error(f"Public directory {public_dir} not found")
+        os.makedirs(public_dir)
+        logger.info(f"Created public directory {public_dir}")
+
     # Mount static files for connect.html
-    app.mount("/public", StaticFiles(directory="public"), name="public")
+    app.mount("/public", StaticFiles(directory=public_dir, html=True), name="public")
     logger.info("Static files mounted at /public")
 
     @app.post("/wallet")
