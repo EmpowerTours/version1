@@ -5,6 +5,8 @@ import contract
 import utils
 
 app = FastAPI()
+
+# Mount static files for connect.html
 app.mount("/public", StaticFiles(directory="public"), name="public")
 
 @app.post("/wallet")
@@ -22,7 +24,7 @@ async def connect_wallet(data: dict):
 
 @app.post("/create_profile")
 async def create_profile(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.create_profile_tx(data["wallet_address"], user)
 
 @app.get("/sessions/{user_id}")
@@ -36,39 +38,39 @@ async def get_session(user_id: str):
 
 @app.post("/journal_entry")
 async def journal_entry(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.add_journal_entry_tx(data["wallet_address"], data["content"], user)
 
 @app.post("/add_comment")
 async def add_comment(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.add_comment_tx(data["wallet_address"], data["entry_id"], data["content"], user)
 
 @app.post("/create_climbing_location")
 async def create_climbing_location(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.create_climbing_location_tx(
         data["wallet_address"], data["name"], data["difficulty"], data["latitude"], data["longitude"], data["photo_hash"], user
     )
 
 @app.post("/purchase_climb")
 async def purchase_climb(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.purchase_climbing_location_tx(data["wallet_address"], data["location_id"], user)
 
 @app.post("/create_tournament")
 async def create_tournament(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.create_tournament_tx(data["wallet_address"], data["entry_fee"], user)
 
 @app.post("/join_tournament")
 async def join_tournament(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.join_tournament_tx(data["wallet_address"], data["tournament_id"], user)
 
 @app.post("/end_tournament")
 async def end_tournament(data: dict):
-    user = type('User', (), {'id': data['user_id']})()
+    user = type('User', (), {'id': data['user_id'], 'first_name': 'User', 'username': data.get('username', 'User')})()
     return await contract.end_tournament_tx(data["wallet_address"], data["tournament_id"], data["winner_address"], user)
 
 @app.get("/climbing_locations")
