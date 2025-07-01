@@ -13,16 +13,19 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
-TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
-OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
-LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://your-bot-api.com")
-CHAT_HANDLE = "@empowertourschat"
+MONAD_RPC_URL = os.getenv("MONAD_RPC_URL", "https://testnet-rpc.monad.xyz")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x8ed8fBEB935e71dC501878635c78F28bBF084227")
+TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS", "0x2Da15A8B55BE310A7AB8EB0010506AB30CD6CBcf")
+OWNER_ADDRESS = os.getenv("OWNER_ADDRESS", "0x5fE8373C839948bFCB707A8a8A75A16E2634A725")
+LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS", "0x3de6FCEECd5d05363D80A77963Edd3787c96E593")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://backend-production-79a15.up.railway.app")
+CHAT_HANDLE = os.getenv("CHAT_HANDLE", "@empowertourschat")
 
 # Connect to Monad testnet
 w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL))
+if not w3.is_connected():
+    logger.error("Failed to connect to Monad testnet")
+    raise Exception("Web3 connection failed")
 
 # EmpowerTours contract ABI
 CONTRACT_ABI = [
@@ -485,18 +488,19 @@ async def create_profile_tx(wallet_address, user):
         
         profile_fee = contract.functions.profileFee().call()
         balance = w3.eth.get_balance(wallet_address)
+        
+        # Simulate createProfile transaction
         try:
             w3.eth.call({
                 'from': wallet_address,
                 'to': CONTRACT_ADDRESS,
-                'value': profile_fee,
                 'data': contract.encodeABI(fn_name='createProfile', args=[])
             })
         except ContractLogicError as e:
             logger.error(f"Simulation error in createProfile: {str(e)}")
             return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the contract is valid. 😅"}
         
-        gas_estimate = contract.functions.createProfile().estimate_gas({'from': wallet_address, 'value': profile_fee})
+        gas_estimate = contract.functions.createProfile().estimate_gas({'from': wallet_address})
         gas_limit = int(gas_estimate * 1.2)
         gas_fees = await get_gas_fees(wallet_address)
         gas_cost = gas_limit * gas_fees['maxFeePerGas']
@@ -511,22 +515,44 @@ async def create_profile_tx(wallet_address, user):
                 )
             }
         
+        # Build createProfile transaction
         nonce = w3.eth.get_transaction_count(wallet_address)
-        tx = contract.functions.createProfile().build_transaction({
+        create_tx = contract.functions.createProfile().build_transaction({
             'chainId': 10143,
             'from': wallet_address,
-            'value': profile_fee,
             'nonce': nonce,
             'gas': gas_limit,
             'maxFeePerGas': gas_fees['maxFeePerGas'],
             'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
         })
+        
+        # Build payment transaction to OWNER_ADDRESS
+        payment_tx = {
+            'chainId': 10143,
+            'from': wallet_address,
+            'to': OWNER_ADDRESS,
+            'value': profile_fee,
+            'nonce': nonce + 1,
+            'gas': 21000,
+            'maxFeePerGas': gas_fees['maxFeePerGas'],
+            'maxPriorityFeePerGas': gas_fees['maxPriorityFeePerGas']
+        }
+        
         cursor.execute(
             "INSERT INTO pending_txs (user_id, tx_type, tx_data) VALUES (?, ?, ?)",
-            (str(user.id), 'create_profile', json.dumps(tx))
+            (str(user.id), 'create_profile', json.dumps(create_tx))
+        )
+        cursor.execute(
+            "INSERT INTO pending_txs (user_id, tx_type, tx_data) VALUES (?, ?, ?)",
+            (str(user.id), 'payment_to_owner', json.dumps(payment_tx))
         )
         conn.commit()
-        return {'status': 'success', 'tx_type': 'create_profile', 'tx_data': tx}
+        return {
+            'status': 'success',
+            'tx_type': 'create_profile',
+            'tx_data': create_tx,
+            'next_tx': {'type': 'payment_to_owner', 'tx_data': payment_tx}
+        }
     except ContractLogicError as e:
         logger.error(f"Contract error in createProfile: {str(e)}")
         return {'status': 'error', 'message': f"Contract error: {str(e)}. Ensure the contract is valid or try again later. 😅"}
@@ -608,6 +634,7 @@ async def add_comment_tx(wallet_address, entry_id, comment, user):
                 'status': 'error',
                 'message': (
                     f"Need {w3.from_wei(comment_fee + gas_cost, 'ether')} $MON to comment. "
+                    f"Your balance: {w3.from_wei(balance, 'ether')} $MON. "
                     "Top up at <a href=\"https://testnet.monad.xyz/faucet\">Monad Faucet</a>! 🪙"
                 )
             }
@@ -1013,13 +1040,19 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         f"Welcome aboard, {user.first_name}! Your profile is live! 🎉 Tx: {tx_hash.hex()}\n"
                         "Try /journal to log your first climb or /buildaclimb to share a spot! 🪨"
                     ),
-                    'group_message': f"New climber {user.username} joined EmpowerTours! 🧗 Tx: {tx_hash.hex()}"
+                    'group_message': f"New climber {user.username or user.first_name} joined EmpowerTours! 🧗 Tx: {tx_hash.hex()}"
+                }
+            elif pending_tx['tx_type'] == 'payment_to_owner':
+                return {
+                    'status': 'success',
+                    'message': f"Payment to owner successful! Your profile is fully activated! 🎉 Tx: {tx_hash.hex()}",
+                    'group_message': f"{user.username or user.first_name} completed profile payment! 🪙 Tx: {tx_hash.hex()}"
                 }
             elif pending_tx['tx_type'] == 'journal_entry':
                 return {
                     'status': 'success',
                     'message': f"Journal entry logged, {user.first_name}! You earned 5 $TOURS! 🎉 Tx: {tx_hash.hex()}",
-                    'group_message': f"{user.username} shared a climb journal! 🪨 Check it out! Tx: {tx_hash.hex()}"
+                    'group_message': f"{user.username or user.first_name} shared a climb journal! 🪨 Check it out! Tx: {tx_hash.hex()}"
                 }
             elif pending_tx['tx_type'] == 'approve_tours' and 'next_tx' in pending_tx:
                 next_tx_type = pending_tx['next_tx']['type']
@@ -1048,20 +1081,14 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                          pending_tx['next_tx']['photo_hash'])
                     )
                     conn.commit()
-                    response = requests.post(f"{API_BASE_URL}/sign", json={
-                        'user_id': str(user.id),
+                    return {
+                        'status': 'success',
+                        'message': (
+                            f"$TOURS approval successful! Please send the signed transaction hash for climb creation (10 $TOURS) using your wallet."
+                        ),
+                        'tx_type': 'create_climbing_location',
                         'tx_data': next_tx
-                    })
-                    if response.status_code == 200:
-                        return {
-                            'status': 'success',
-                            'message': (
-                                f"$TOURS approval successful! Please visit the WalletConnect page to sign the climb creation transaction (10 $TOURS).\n"
-                                f"If not redirected, use /connectwallet to get the link again."
-                            )
-                        }
-                    else:
-                        return {'status': 'error', 'message': "Failed to initiate transaction signing. Try again! 😅"}
+                    }
                 elif next_tx_type == 'purchase_climbing_location':
                     next_tx = contract.functions.purchaseClimbingLocation(
                         pending_tx['next_tx']['location_id']
@@ -1078,20 +1105,14 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         (str(user.id), 'purchase_climbing_location', json.dumps(next_tx), pending_tx['next_tx']['location_id'])
                     )
                     conn.commit()
-                    response = requests.post(f"{API_BASE_URL}/sign", json={
-                        'user_id': str(user.id),
+                    return {
+                        'status': 'success',
+                        'message': (
+                            f"$TOURS approval successful! Please send the signed transaction hash for climb purchase (10 $TOURS) using your wallet."
+                        ),
+                        'tx_type': 'purchase_climbing_location',
                         'tx_data': next_tx
-                    })
-                    if response.status_code == 200:
-                        return {
-                            'status': 'success',
-                            'message': (
-                                f"$TOURS approval successful! Please visit the WalletConnect page to sign the climb purchase transaction (10 $TOURS).\n"
-                                f"If not redirected, use /connectwallet to get the link again."
-                            )
-                        }
-                    else:
-                        return {'status': 'error', 'message': "Failed to initiate transaction signing. Try again! 😅"}
+                    }
                 elif next_tx_type == 'join_tournament':
                     next_tx = contract.functions.joinTournament(
                         pending_tx['next_tx']['tournament_id']
@@ -1108,20 +1129,14 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         (str(user.id), 'join_tournament', json.dumps(next_tx), pending_tx['next_tx']['tournament_id'])
                     )
                     conn.commit()
-                    response = requests.post(f"{API_BASE_URL}/sign", json={
-                        'user_id': str(user.id),
+                    return {
+                        'status': 'success',
+                        'message': (
+                            f"$TOURS approval successful! Please send the signed transaction hash for joining tournament using your wallet."
+                        ),
+                        'tx_type': 'join_tournament',
                         'tx_data': next_tx
-                    })
-                    if response.status_code == 200:
-                        return {
-                            'status': 'success',
-                            'message': (
-                                f"$TOURS approval successful! Please visit the WalletConnect page to sign the tournament join transaction.\n"
-                                f"If not redirected, use /connectwallet to get the link again."
-                            )
-                        }
-                    else:
-                        return {'status': 'error', 'message': "Failed to initiate transaction signing. Try again! 😅"}
+                    }
             elif pending_tx['tx_type'] == 'create_climbing_location':
                 location_id = contract.functions.getClimbingLocationCount().call() - 1
                 location = contract.functions.climbingLocations(location_id).call()
@@ -1132,23 +1147,23 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         f"at ({location[3]/10**6:.4f}, {location[4]/10**6:.4f}). Tx: {tx_hash.hex()}"
                     ),
                     'group_message': (
-                        f"New climb by {user.username}! 🧗\n"
+                        f"New climb by {user.username or user.first_name}! 🧗\n"
                         f"Name: {pending_tx['name']} ({pending_tx['difficulty']})\n"
                         f"Location: ({location[3]/10**6:.4f}, {location[4]/10**6:.4f})\n"
-                        f"Tx: {tx_hash}"
+                        f"Tx: {tx_hash.hex()}"
                     )
                 }
             elif pending_tx['tx_type'] == 'purchase_climbing_location':
                 return {
                     'status': 'success',
                     'message': f"Climb #{pending_tx['location_id']} purchased, {user.first_name}! 🎉 Tx: {tx_hash.hex()}",
-                    'group_message': f"{user.username} purchased climb #{pending_tx['location_id']}! 🪨 Tx: {tx_hash.hex()}"
+                    'group_message': f"{user.username or user.first_name} purchased climb #{pending_tx['location_id']}! 🪨 Tx: {tx_hash.hex()}"
                 }
             elif pending_tx['tx_type'] == 'add_comment':
                 return {
                     'status': 'success',
                     'message': f"Comment added to entry #{pending_tx['location_id']}, {user.first_name}! 🎉 Tx: {tx_hash.hex()}",
-                    'group_message': f"{user.username} commented on journal entry #{pending_tx['location_id']}! 🗣️ Tx: {tx_hash.hex()}"
+                    'group_message': f"{user.username or user.first_name} commented on journal entry #{pending_tx['location_id']}! 🗣️ Tx: {tx_hash.hex()}"
                 }
             elif pending_tx['tx_type'] == 'create_tournament':
                 tournament_id = contract.functions.getTournamentCount().call() - 1
@@ -1156,7 +1171,7 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                     'status': 'success',
                     'message': f"Tournament #{tournament_id} created, {user.first_name}! 🏆 Tx: {tx_hash.hex()}",
                     'group_message': (
-                        f"New tournament #{tournament_id} by {user.username}! 🏆\n"
+                        f"New tournament #{tournament_id} by {user.username or user.first_name}! 🏆\n"
                         f"Join with /jointournament {tournament_id}\n"
                         f"Tx: {tx_hash.hex()}"
                     )
@@ -1165,13 +1180,13 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                 return {
                     'status': 'success',
                     'message': f"Joined tournament #{pending_tx['tournament_id']}, {user.first_name}! 🏆 Tx: {tx_hash.hex()}",
-                    'group_message': f"{user.username} joined tournament #{pending_tx['tournament_id']}! 🏆 Tx: {tx_hash.hex()}"
+                    'group_message': f"{user.username or user.first_name} joined tournament #{pending_tx['tournament_id']}! 🏆 Tx: {tx_hash.hex()}"
                 }
             elif pending_tx['tx_type'] == 'end_tournament':
                 return {
                     'status': 'success',
                     'message': f"Tournament #{pending_tx['tournament_id']} ended, {user.first_name}! 🏆 Tx: {tx_hash.hex()}",
-                    'group_message': f"Tournament #{pending_tx['tournament_id']} ended by {user.username}! 🏆 Tx: {tx_hash.hex()}"
+                    'group_message': f"Tournament #{pending_tx['tournament_id']} ended by {user.username or user.first_name}! 🏆 Tx: {tx_hash.hex()}"
                 }
         else:
             return {'status': 'error', 'message': "Transaction failed. Ensure the signed transaction is valid and try again! 💪"}
