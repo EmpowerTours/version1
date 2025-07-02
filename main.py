@@ -1,5 +1,7 @@
 import logging
 import os
+import signal
+import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,7 +11,6 @@ from web3 import Web3
 import time
 from dotenv import load_dotenv
 import html
-import asyncio
 import uvicorn
 
 # Setup logging
@@ -370,6 +371,7 @@ def escape_html(text):
 
 # Telegram Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /start command from user {update.effective_user.id}")
     if not CHAT_HANDLE:
         logger.error("CHAT_HANDLE missing, /start command limited")
         await update.message.reply_text(
@@ -382,6 +384,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /tutorial command from user {update.effective_user.id}")
     if not CHAT_HANDLE or not MONAD_RPC_URL:
         logger.error("CHAT_HANDLE or MONAD_RPC_URL missing, /tutorial command limited")
         await update.message.reply_text("Tutorial unavailable due to configuration issues. Try /help! 😅")
@@ -412,6 +415,7 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(tutorial_text, parse_mode="HTML")
 
 async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /connectwallet command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /connectwallet command disabled")
         await update.message.reply_text("Wallet connection unavailable due to configuration issues. Try again later! 😅")
@@ -432,7 +436,9 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def handle_wallet_address(user_id: str, wallet_address: str, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Handling wallet address for user {user_id}: {wallet_address}")
     if user_id not in pending_wallets or not pending_wallets[user_id].get("awaiting_wallet"):
+        logger.warning(f"No pending wallet connection for user {user_id}")
         return
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, wallet connection disabled")
@@ -450,6 +456,7 @@ async def handle_wallet_address(user_id: str, wallet_address: str, context: Cont
         await context.bot.send_message(user_id, f"Error: {str(e)}. Try again! 😅")
 
 async def create_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /createprofile command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /createprofile command disabled")
         await update.message.reply_text("Profile creation unavailable due to configuration issues. Try again later! 😅")
@@ -490,7 +497,9 @@ async def create_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    logger.info(f"Received transaction hash from user {user_id}: {update.message.text}")
     if user_id not in pending_wallets or not pending_wallets[user_id].get("awaiting_tx"):
+        logger.warning(f"No pending transaction for user {user_id}")
         return
     tx_hash = update.message.text.strip()
     if not tx_hash.startswith("0x") or len(tx_hash) != 66:
@@ -522,7 +531,7 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 "parse_mode": "HTML"
                             }
                         ) as response:
-                            pass
+                            logger.info("Sent profile creation notification to chat")
                 del pending_wallets[user_id]
         else:
             await update.message.reply_text("Transaction failed or pending. Check and try again! 😅")
@@ -531,6 +540,7 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /journal command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /journal command disabled")
         await update.message.reply_text("Journal entry unavailable due to configuration issues. Try again later! 😅")
@@ -548,6 +558,7 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received photo from user {update.effective_user.id}")
     if not update.message.photo:
         return
     if not API_BASE_URL:
@@ -588,6 +599,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def add_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /comment command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /comment command disabled")
         await update.message.reply_text("Commenting unavailable due to configuration issues. Try again later! 😅")
@@ -625,6 +637,7 @@ async def add_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def build_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /buildaclimb command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /buildaclimb command disabled")
         await update.message.reply_text("Climb creation unavailable due to configuration issues. Try again later! 😅")
@@ -644,6 +657,7 @@ async def build_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received location from user {update.effective_user.id}")
     if not update.message.location:
         return
     if not API_BASE_URL:
@@ -687,6 +701,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /purchaseclimb command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /purchaseclimb command disabled")
         await update.message.reply_text("Climb purchase unavailable due to configuration issues. Try again later! 😅")
@@ -721,6 +736,7 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def create_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /createtournament command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /createtournament command disabled")
         await update.message.reply_text("Tournament creation unavailable due to configuration issues. Try again later! 😅")
@@ -755,6 +771,7 @@ async def create_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def join_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /jointournament command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /jointournament command disabled")
         await update.message.reply_text("Tournament joining unavailable due to configuration issues. Try again later! 😅")
@@ -789,6 +806,7 @@ async def join_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def end_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /endtournament command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /endtournament command disabled")
         await update.message.reply_text("Tournament ending unavailable due to configuration issues. Try again later! 😅")
@@ -824,6 +842,7 @@ async def end_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /balance command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /balance command disabled")
         await update.message.reply_text("Balance check unavailable due to configuration issues. Try again later! 😅")
@@ -849,6 +868,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def find_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /findaclimb command from user {update.effective_user.id}")
     if not API_BASE_URL:
         logger.error("API_BASE_URL missing, /findaclimb command disabled")
         await update.message.reply_text("Climb discovery unavailable due to configuration issues. Try again later! 😅")
@@ -876,6 +896,7 @@ async def find_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /help command from user {update.effective_user.id}")
     if not CHAT_HANDLE:
         logger.error("CHAT_HANDLE missing, /help command limited")
         await update.message.reply_text(
@@ -944,26 +965,30 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
                         "parse_mode": "HTML"
                     }
                 ) as response:
-                    pass
+                    logger.info("Sent climb notification to chat")
     except Exception as e:
         logger.error(f"Error in monitor_events: {str(e)}")
 
 # API Endpoints
 @app.get("/sessions/{user_id}")
 async def get_session(user_id: str):
+    logger.info(f"Fetching session for user {user_id}")
     session = sessions.get(user_id, {})
     return {"wallet_address": session.get("wallet_address")}
 
 @app.post("/wallet")
 async def connect_wallet_endpoint(request: Request):
+    logger.info("Received /wallet request")
     data = await request.json()
     user_id = data.get("telegramUserId")
     wallet_address = data.get("walletAddress")
     if not user_id or not wallet_address:
+        logger.error("Missing userId or walletAddress in /wallet request")
         raise HTTPException(status_code=400, detail="Missing userId or walletAddress")
     try:
         bot_app = app.state.bot_application
         await handle_wallet_address(user_id, wallet_address, bot_app)
+        logger.info(f"Wallet connected for user {user_id}: {wallet_address}")
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Error in /wallet: {str(e)}")
@@ -971,11 +996,13 @@ async def connect_wallet_endpoint(request: Request):
 
 @app.post("/create_profile")
 async def create_profile_endpoint(request: Request):
+    logger.info("Received /create_profile request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     user_id = data.get("user_id")
     username = data.get("username")
     if not wallet_address or not user_id:
+        logger.error("Missing wallet_address or user_id in /create_profile request")
         raise HTTPException(status_code=400, detail="Missing wallet_address or user_id")
     try:
         profile_fee = contract.functions.profileFee().call()
@@ -993,6 +1020,7 @@ async def create_profile_endpoint(request: Request):
             'gas': 21000,
             'gasPrice': w3.eth.gas_price
         }
+        logger.info(f"Profile creation transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx, "next_tx": {"tx_data": payment_tx}}
     except Exception as e:
         logger.error(f"Error in /create_profile: {str(e)}")
@@ -1000,11 +1028,13 @@ async def create_profile_endpoint(request: Request):
 
 @app.post("/journal_entry")
 async def journal_entry_endpoint(request: Request):
+    logger.info("Received /journal_entry request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     content = data.get("content")
     user_id = data.get("user_id")
     if not wallet_address or not content or not user_id:
+        logger.error("Missing wallet_address, content, or user_id in /journal_entry request")
         raise HTTPException(status_code=400, detail="Missing wallet_address, content, or user_id")
     try:
         tx = contract.functions.addJournalEntry(content).build_transaction({
@@ -1013,6 +1043,7 @@ async def journal_entry_endpoint(request: Request):
             'gas': 200000,
             'gasPrice': w3.eth.gas_price
         })
+        logger.info(f"Journal entry transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx}
     except Exception as e:
         logger.error(f"Error in /journal_entry: {str(e)}")
@@ -1020,12 +1051,14 @@ async def journal_entry_endpoint(request: Request):
 
 @app.post("/add_comment")
 async def add_comment_endpoint(request: Request):
+    logger.info("Received /add_comment request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     entry_id = data.get("entry_id")
     content = data.get("content")
     user_id = data.get("user_id")
     if not wallet_address or not entry_id or not content or not user_id:
+        logger.error("Missing wallet_address, entry_id, content, or user_id in /add_comment request")
         raise HTTPException(status_code=400, detail="Missing wallet_address, entry_id, content, or user_id")
     try:
         comment_fee = contract.functions.commentFee().call()
@@ -1036,6 +1069,7 @@ async def add_comment_endpoint(request: Request):
             'gas': 200000,
             'gasPrice': w3.eth.gas_price
         })
+        logger.info(f"Comment transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx}
     except Exception as e:
         logger.error(f"Error in /add_comment: {str(e)}")
@@ -1043,6 +1077,7 @@ async def add_comment_endpoint(request: Request):
 
 @app.post("/create_climbing_location")
 async def create_climbing_location_endpoint(request: Request):
+    logger.info("Received /create_climbing_location request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     name = data.get("name")
@@ -1052,6 +1087,7 @@ async def create_climbing_location_endpoint(request: Request):
     photo_hash = data.get("photo_hash")
     user_id = data.get("user_id")
     if not all([wallet_address, name, difficulty, latitude, longitude, photo_hash, user_id]):
+        logger.error("Missing required fields in /create_climbing_location request")
         raise HTTPException(status_code=400, detail="Missing required fields")
     try:
         tx = contract.functions.createClimbingLocation(name, difficulty, latitude, longitude, photo_hash).build_transaction({
@@ -1060,6 +1096,7 @@ async def create_climbing_location_endpoint(request: Request):
             'gas': 300000,
             'gasPrice': w3.eth.gas_price
         })
+        logger.info(f"Climb creation transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx}
     except Exception as e:
         logger.error(f"Error in /create_climbing_location: {str(e)}")
@@ -1067,11 +1104,13 @@ async def create_climbing_location_endpoint(request: Request):
 
 @app.post("/purchase_climb")
 async def purchase_climb_endpoint(request: Request):
+    logger.info("Received /purchase_climb request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     location_id = data.get("location_id")
     user_id = data.get("user_id")
     if not wallet_address or not location_id or not user_id:
+        logger.error("Missing wallet_address, location_id, or user_id in /purchase_climb request")
         raise HTTPException(status_code=400, detail="Missing wallet_address, location_id, or user_id")
     try:
         tx = contract.functions.purchaseClimbingLocation(location_id).build_transaction({
@@ -1080,6 +1119,7 @@ async def purchase_climb_endpoint(request: Request):
             'gas': 200000,
             'gasPrice': w3.eth.gas_price
         })
+        logger.info(f"Climb purchase transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx}
     except Exception as e:
         logger.error(f"Error in /purchase_climb: {str(e)}")
@@ -1087,11 +1127,13 @@ async def purchase_climb_endpoint(request: Request):
 
 @app.post("/create_tournament")
 async def create_tournament_endpoint(request: Request):
+    logger.info("Received /create_tournament request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     entry_fee = data.get("entry_fee")
     user_id = data.get("user_id")
     if not wallet_address or not entry_fee or not user_id:
+        logger.error("Missing wallet_address, entry_fee, or user_id in /create_tournament request")
         raise HTTPException(status_code=400, detail="Missing wallet_address, entry_fee, or user_id")
     try:
         tx = contract.functions.createTournament(entry_fee).build_transaction({
@@ -1100,6 +1142,7 @@ async def create_tournament_endpoint(request: Request):
             'gas': 200000,
             'gasPrice': w3.eth.gas_price
         })
+        logger.info(f"Tournament creation transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx}
     except Exception as e:
         logger.error(f"Error in /create_tournament: {str(e)}")
@@ -1107,11 +1150,13 @@ async def create_tournament_endpoint(request: Request):
 
 @app.post("/join_tournament")
 async def join_tournament_endpoint(request: Request):
+    logger.info("Received /join_tournament request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     tournament_id = data.get("tournament_id")
     user_id = data.get("user_id")
     if not wallet_address or not tournament_id or not user_id:
+        logger.error("Missing wallet_address, tournament_id, or user_id in /join_tournament request")
         raise HTTPException(status_code=400, detail="Missing wallet_address, tournament_id, or user_id")
     try:
         tx = contract.functions.joinTournament(tournament_id).build_transaction({
@@ -1120,6 +1165,7 @@ async def join_tournament_endpoint(request: Request):
             'gas': 200000,
             'gasPrice': w3.eth.gas_price
         })
+        logger.info(f"Tournament join transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx}
     except Exception as e:
         logger.error(f"Error in /join_tournament: {str(e)}")
@@ -1127,12 +1173,14 @@ async def join_tournament_endpoint(request: Request):
 
 @app.post("/end_tournament")
 async def end_tournament_endpoint(request: Request):
+    logger.info("Received /end_tournament request")
     data = await request.json()
     wallet_address = data.get("wallet_address")
     tournament_id = data.get("tournament_id")
     winner_address = data.get("winner_address")
     user_id = data.get("user_id")
     if not wallet_address or not tournament_id or not winner_address or not user_id:
+        logger.error("Missing wallet_address, tournament_id, winner_address, or user_id in /end_tournament request")
         raise HTTPException(status_code=400, detail="Missing wallet_address, tournament_id, winner_address, or user_id")
     try:
         tx = contract.functions.endTournament(tournament_id, winner_address).build_transaction({
@@ -1141,6 +1189,7 @@ async def end_tournament_endpoint(request: Request):
             'gas': 200000,
             'gasPrice': w3.eth.gas_price
         })
+        logger.info(f"Tournament end transaction prepared for user {user_id}")
         return {"status": "success", "tx_data": tx}
     except Exception as e:
         logger.error(f"Error in /end_tournament: {str(e)}")
@@ -1149,10 +1198,17 @@ async def end_tournament_endpoint(request: Request):
 # Webhook Endpoint
 @app.post("/webhook")
 async def webhook(request: Request):
+    logger.info("Received webhook request")
     try:
         update = Update.de_json(await request.json(), app.state.bot_application.bot)
-        await app.state.bot_application.process_update(update)
-        return {"status": "ok"}
+        if update:
+            logger.info(f"Processing update: {update.update_id}")
+            await app.state.bot_application.process_update(update)
+            logger.info(f"Update {update.update_id} processed successfully")
+            return {"status": "ok"}
+        else:
+            logger.warning("Invalid update received")
+            raise HTTPException(status_code=400, detail="Invalid update")
     except Exception as e:
         logger.error(f"Error in webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1191,6 +1247,7 @@ async def init_bot():
 # Startup and Shutdown
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Starting application...")
     initialize_web3()
     await init_bot()
     if TELEGRAM_TOKEN and API_BASE_URL:
@@ -1199,22 +1256,34 @@ async def startup_event():
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
                 json={"drop_pending_updates": True}
             ) as response:
-                logger.info("Webhook cleared successfully")
+                logger.info(f"Webhook cleared: {await response.json()}")
             async with session.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
                 json={"url": f"{API_BASE_URL}/webhook"}
             ) as response:
-                logger.info("Webhook set successfully")
+                logger.info(f"Webhook set: {await response.json()}")
     else:
         logger.error("TELEGRAM_TOKEN or API_BASE_URL missing, webhook not set")
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    logger.info("Shutting down application...")
     if hasattr(app.state, "bot_application"):
         await app.state.bot_application.updater.stop()
         await app.state.bot_application.stop()
         await app.state.bot_application.shutdown()
         logger.info("Telegram bot shutdown complete")
+
+# Signal Handling
+def handle_shutdown(signum, frame):
+    logger.info("Received shutdown signal, stopping application...")
+    if hasattr(app.state, "bot_application"):
+        asyncio.create_task(app.state.bot_application.updater.stop())
+        asyncio.create_task(app.state.bot_application.stop())
+        asyncio.create_task(app.state.bot_application.shutdown())
+
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
