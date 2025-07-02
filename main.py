@@ -335,6 +335,7 @@ journal_data = {}
 build_data = {}
 sessions = {}
 webhook_failed = False
+last_processed_block = 0
 
 def initialize_web3():
     global w3, contract, tours_contract
@@ -370,6 +371,23 @@ def escape_html(text):
         return ""
     return html.escape(str(text))
 
+async def send_notification(chat_id, message):
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": "HTML"
+            }
+        ) as response:
+            response_data = await response.json()
+            if response_data.get("ok"):
+                logger.info(f"Sent notification to chat {chat_id}: {response_data}")
+            else:
+                logger.error(f"Failed to send notification to chat {chat_id}: {response_data}")
+            return response_data
+
 # Telegram Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /start command from user {update.effective_user.id}")
@@ -390,30 +408,34 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error("CHAT_HANDLE or MONAD_RPC_URL missing, /tutorial command limited")
         await update.message.reply_text("Tutorial unavailable due to configuration issues. Try /help! 😅")
         return
-    tutorial_text = (
-        f"🌟 <b>Tutorial</b> 🌟\n"
-        "1️⃣ <b>Wallet</b>:\n"
-        "- Get MetaMask/Phantom/Gnosis Safe.\n"
-        f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
-        "- Get $MON: <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>\n"
-        "2️⃣ <b>Connect</b>:\n"
-        "- Use /connectwallet to connect via MetaMask/WalletConnect\n"
-        "3️⃣ <b>Profile</b>:\n"
-        "- /createprofile (1 $MON)\n"
-        "4️⃣ <b>Explore</b>:\n"
-        "- /journal [your journal entry]\n"
-        "- /comment [id] [your comment]\n"
-        "- /buildaclimb [name] [difficulty]\n"
-        "- /purchaseclimb [id]\n"
-        "- /findaclimb\n"
-        "- /createtournament [fee]\n"
-        "- /jointournament [id]\n"
-        "- /endtournament [id] [winner]\n"
-        "- /balance\n"
-        "- /help\n"
-        f"Join <a href=\"https://t.me/empowertourschat\">{escape_html(CHAT_HANDLE)}</a>! Try /connectwallet! 🪨"
-    )
-    await update.message.reply_text(tutorial_text, parse_mode="HTML")
+    try:
+        tutorial_text = (
+            f"🌟 <b>Tutorial</b> 🌟\n"
+            "1️⃣ <b>Wallet</b>:\n"
+            "- Get MetaMask/Phantom/Gnosis Safe.\n"
+            f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
+            "- Get $MON: <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>\n"
+            "2️⃣ <b>Connect</b>:\n"
+            "- Use /connectwallet to connect via MetaMask/WalletConnect\n"
+            "3️⃣ <b>Profile</b>:\n"
+            "- /createprofile (1 $MON)\n"
+            "4️⃣ <b>Explore</b>:\n"
+            "- /journal [your journal entry]\n"
+            "- /comment [id] [your comment]\n"
+            "- /buildaclimb [name] [difficulty]\n"
+            "- /purchaseclimb [id]\n"
+            "- /findaclimb\n"
+            "- /createtournament [fee]\n"
+            "- /jointournament [id]\n"
+            "- /endtournament [id] [winner]\n"
+            "- /balance\n"
+            "- /help\n"
+            f"Join EmpowerTours Chat[](https://t.me/empowertourschat)! Try /connectwallet! 🪨"
+        )
+        await update.message.reply_text(tutorial_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Error in /tutorial: {str(e)}")
+        await update.message.reply_text(f"Error in tutorial: {str(e)}. Try again! 😅")
 
 async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /connectwallet command from user {update.effective_user.id}")
@@ -525,20 +547,8 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text(f"Profile created successfully! Tx: {tx_hash} 🪙")
                 if CHAT_HANDLE and TELEGRAM_TOKEN:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(
-                            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                            json={
-                                "chat_id": CHAT_HANDLE,
-                                "text": f"New climber {escape_html(update.effective_user.username or update.effective_user.first_name)} joined EmpowerTours! 🧗 Tx: {escape_html(tx_hash)}",
-                                "parse_mode": "HTML"
-                            }
-                        ) as response:
-                            response_data = await response.json()
-                            if response_data.get("ok"):
-                                logger.info(f"Sent profile creation notification to chat: {response_data}")
-                            else:
-                                logger.error(f"Failed to send profile notification: {response_data}")
+                    message = f"New climber {escape_html(update.effective_user.username or update.effective_user.first_name)} joined EmpowerTours! 🧗 Tx: {escape_html(tx_hash)}"
+                    await send_notification(CHAT_HANDLE, message)
                 del pending_wallets[user_id]
         else:
             await update.message.reply_text("Transaction failed or pending. Check and try again! 😅")
@@ -940,88 +950,104 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>/endtournament [id] [winner]</b> - End tournament\n"
         "<b>/balance</b> - Check balance\n"
         "<b>/help</b> - Menu\n"
-        f"Join <a href=\"https://t.me/empowertourschat\">{escape_html(CHAT_HANDLE)}</a>! 🌄",
+        f"Join EmpowerTours Chat[](https://t.me/empowertourschat)! 🌄",
         parse_mode="HTML"
     )
 
 async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
+    global last_processed_block
     try:
         if not w3 or not contract or not CHAT_HANDLE or not TELEGRAM_TOKEN:
             logger.error("Event monitoring skipped due to Web3, contract, or environment variable unavailability")
             return
+
         latest_block = w3.eth.get_block_number()
-        logger.info(f"Checking events from block {latest_block-10} to {latest_block}")
-        
-        # Monitor all relevant events
-        event_types = [
-            ("ProfileCreated", contract.events.ProfileCreated),
-            ("ClimbingLocationCreated", contract.events.ClimbingLocationCreated),
-            ("CommentAdded", contract.events.CommentAdded),
-            ("LocationPurchased", contract.events.LocationPurchased),
-            ("TournamentCreated", contract.events.TournamentCreated),
-            ("TournamentJoined", contract.events.TournamentJoined),
-            ("TournamentEnded", contract.events.TournamentEnded)
-        ]
-        
-        for event_name, event_obj in event_types:
-            event_filter = event_obj.create_filter(from_block=latest_block-10, to_block=latest_block)
-            events = event_filter.get_all_entries()
-            logger.info(f"Found {len(events)} {event_name} events")
-            for event in events:
-                tx_hash = escape_html(event["transactionHash"].hex() or "")
-                if event_name == "ProfileCreated":
-                    user = event["args"]["user"] or ""
-                    message = f"New climber {escape_html(user[:6])}... joined EmpowerTours! 🧗 Tx: {tx_hash}"
-                elif event_name == "ClimbingLocationCreated":
-                    location_id = event["args"]["locationId"]
-                    creator = event["args"]["creator"] or ""
-                    name = escape_html(event["args"]["name"] or "")
-                    location = contract.functions.climbingLocations(location_id).call()
-                    message = (
-                        f"New climb by {escape_html(creator[:6])}...! 🧗\n"
-                        f"Name: {name}\n"
-                        f"Location: ({int(location[3] or 0)/10**6:.4f}, {int(location[4] or 0)/10**6:.4f})\n"
-                        f"Tx: {tx_hash}"
-                    )
-                elif event_name == "CommentAdded":
-                    entry_id = event["args"]["entryId"]
-                    commenter = event["args"]["commenter"] or ""
-                    message = f"New comment by {escape_html(commenter[:6])}... on entry {entry_id}! 🗣️ Tx: {tx_hash}"
-                elif event_name == "LocationPurchased":
-                    location_id = event["args"]["locationId"]
-                    buyer = event["args"]["buyer"] or ""
-                    message = f"Climb {location_id} purchased by {escape_html(buyer[:6])}...! 🪙 Tx: {tx_hash}"
-                elif event_name == "TournamentCreated":
-                    tournament_id = event["args"]["tournamentId"]
-                    entry_fee = event["args"]["entryFee"] / 10**18
-                    message = f"New tournament {tournament_id} created with {entry_fee:.2f} $TOURS entry fee! 🏆 Tx: {tx_hash}"
-                elif event_name == "TournamentJoined":
-                    tournament_id = event["args"]["tournamentId"]
-                    participant = event["args"]["participant"] or ""
-                    message = f"Climber {escape_html(participant[:6])}... joined tournament {tournament_id}! 🏆 Tx: {tx_hash}"
-                elif event_name == "TournamentEnded":
-                    tournament_id = event["args"]["tournamentId"]
-                    winner = event["args"]["winner"] or ""
-                    pot = event["args"]["pot"] / 10**18
-                    message = f"Tournament {tournament_id} ended! Winner: {escape_html(winner[:6])}... Pot: {pot:.2f} $TOURS 🏆 Tx: {tx_hash}"
-                
-                logger.info(f"Preparing to send {event_name} notification: {message}")
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                        json={
-                            "chat_id": CHAT_HANDLE,
-                            "text": message,
-                            "parse_mode": "HTML"
-                        }
-                    ) as response:
-                        response_data = await response.json()
-                        if response_data.get("ok"):
-                            logger.info(f"Sent {event_name} notification to chat: {response_data}")
-                        else:
-                            logger.error(f"Failed to send {event_name} notification: {response_data}")
+        logger.info(f"Checking events from block {last_processed_block + 1} to {latest_block}")
+
+        # Try event filter first
+        try:
+            event_types = [
+                ("ProfileCreated", contract.events.ProfileCreated),
+                ("ClimbingLocationCreated", contract.events.ClimbingLocationCreated),
+                ("CommentAdded", contract.events.CommentAdded),
+                ("LocationPurchased", contract.events.LocationPurchased),
+                ("TournamentCreated", contract.events.TournamentCreated),
+                ("TournamentJoined", contract.events.TournamentJoined),
+                ("TournamentEnded", contract.events.TournamentEnded)
+            ]
+            for event_name, event_obj in event_types:
+                event_filter = event_obj.create_filter(from_block=last_processed_block + 1, to_block=latest_block)
+                events = event_filter.get_all_entries()
+                logger.info(f"Found {len(events)} {event_name} events via filter")
+                for event in events:
+                    await process_event(event_name, event)
+            last_processed_block = latest_block
+        except Exception as e:
+            logger.warning(f"Event filter failed: {str(e)}. Falling back to transaction receipt polling.")
+
+            # Fallback: Poll recent blocks for transactions to contract
+            for block_number in range(last_processed_block + 1, latest_block + 1):
+                try:
+                    block = w3.eth.get_block(block_number, full_transactions=True)
+                    for tx in block.transactions:
+                        if tx.get('to') and tx['to'].lower() == CONTRACT_ADDRESS.lower():
+                            receipt = w3.eth.get_transaction_receipt(tx['hash'])
+                            if receipt and receipt.status:
+                                for log in receipt.logs:
+                                    for event_name, event_obj in event_types:
+                                        try:
+                                            event = event_obj().process_log(log)
+                                            if event:
+                                                await process_event(event_name, event)
+                                        except Exception as log_e:
+                                            logger.error(f"Error processing log for {event_name}: {str(log_e)}")
+                except Exception as block_e:
+                    logger.error(f"Error processing block {block_number}: {str(block_e)}")
+            last_processed_block = latest_block
+
     except Exception as e:
         logger.error(f"Error in monitor_events: {str(e)}")
+
+async def process_event(event_name, event):
+    tx_hash = escape_html(event["transactionHash"].hex() or "")
+    if event_name == "ProfileCreated":
+        user = event["args"]["user"] or ""
+        message = f"New climber {escape_html(user[:6])}... joined EmpowerTours! 🧗 Tx: {tx_hash}"
+    elif event_name == "ClimbingLocationCreated":
+        location_id = event["args"]["locationId"]
+        creator = event["args"]["creator"] or ""
+        name = escape_html(event["args"]["name"] or "")
+        location = contract.functions.climbingLocations(location_id).call()
+        message = (
+            f"New climb by {escape_html(creator[:6])}...! 🧗\n"
+            f"Name: {name}\n"
+            f"Location: ({int(location[3] or 0)/10**6:.4f}, {int(location[4] or 0)/10**6:.4f})\n"
+            f"Tx: {tx_hash}"
+        )
+    elif event_name == "CommentAdded":
+        entry_id = event["args"]["entryId"]
+        commenter = event["args"]["commenter"] or ""
+        message = f"New comment by {escape_html(commenter[:6])}... on entry {entry_id}! 🗣️ Tx: {tx_hash}"
+    elif event_name == "LocationPurchased":
+        location_id = event["args"]["locationId"]
+        buyer = event["args"]["buyer"] or ""
+        message = f"Climb {location_id} purchased by {escape_html(buyer[:6])}...! 🪙 Tx: {tx_hash}"
+    elif event_name == "TournamentCreated":
+        tournament_id = event["args"]["tournamentId"]
+        entry_fee = event["args"]["entryFee"] / 10**18
+        message = f"New tournament {tournament_id} created with {entry_fee:.2f} $TOURS entry fee! 🏆 Tx: {tx_hash}"
+    elif event_name == "TournamentJoined":
+        tournament_id = event["args"]["tournamentId"]
+        participant = event["args"]["participant"] or ""
+        message = f"Climber {escape_html(participant[:6])}... joined tournament {tournament_id}! 🏆 Tx: {tx_hash}"
+    elif event_name == "TournamentEnded":
+        tournament_id = event["args"]["tournamentId"]
+        winner = event["args"]["winner"] or ""
+        pot = event["args"]["pot"] / 10**18
+        message = f"Tournament {tournament_id} ended! Winner: {escape_html(winner[:6])}... Pot: {pot:.2f} $TOURS 🏆 Tx: {tx_hash}"
+    
+    logger.info(f"Preparing to send {event_name} notification: {message}")
+    await send_notification(CHAT_HANDLE, message)
 
 # API Endpoints
 @app.get("/sessions/{user_id}")
@@ -1274,7 +1300,7 @@ async def init_bot():
     try:
         logger.info("Initializing Telegram bot...")
         bot_app = Application.builder().token(TELEGRAM_TOKEN or "").build()
-        bot_app.add_handler(CommandHandler("start", start))
+        bot_app.add_handler(CommandHandler("start",10, start))
         bot_app.add_handler(CommandHandler("tutorial", tutorial))
         bot_app.add_handler(CommandHandler("connectwallet", connect_wallet))
         bot_app.add_handler(CommandHandler("createprofile", create_profile))
