@@ -967,7 +967,7 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
                         "parse_mode": "HTML"
                     }
                 ) as response:
-                    logger.info(f"Sent climb notification to chat: {await response.json()}")
+                    logger.info("Sent climb notification to chat")
     except Exception as e:
         logger.error(f"Error in monitor_events: {str(e)}")
 
