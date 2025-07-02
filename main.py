@@ -1291,4 +1291,11 @@ def handle_shutdown(signum, frame):
     logger.info("Received shutdown signal, stopping application...")
     if hasattr(app.state, "bot_application"):
         asyncio.create_task(app.state.bot_application.updater.stop())
-        asyncio.create_task(app.state.bot_application.stop
+        asyncio.create_task(app.state.bot_application.stop())
+        asyncio.create_task(app.state.bot_application.shutdown())
+
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
