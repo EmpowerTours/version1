@@ -423,7 +423,6 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         user_id = str(update.effective_user.id)
-        # Ensure no double slashes in URL
         base_url = API_BASE_URL.rstrip('/')
         connect_url = f"{base_url}/public/connect.html?userId={user_id}"
         logger.info(f"Generated connect URL: {connect_url}")
@@ -535,7 +534,11 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 "parse_mode": "HTML"
                             }
                         ) as response:
-                            logger.info("Sent profile creation notification to chat")
+                            response_data = await response.json()
+                            if response_data.get("ok"):
+                                logger.info(f"Sent profile creation notification to chat: {response_data}")
+                            else:
+                                logger.error(f"Failed to send profile notification: {response_data}")
                 del pending_wallets[user_id]
         else:
             await update.message.reply_text("Transaction failed or pending. Check and try again! 😅")
@@ -947,30 +950,76 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
             logger.error("Event monitoring skipped due to Web3, contract, or environment variable unavailability")
             return
         latest_block = w3.eth.get_block_number()
-        event_filter = contract.events.ClimbingLocationCreated.create_filter(from_block=latest_block-10, to_block=latest_block)
-        events = event_filter.get_all_entries()
-        for event in events:
-            location_id = event["args"]["locationId"]
-            creator = event["args"]["creator"] or ""
-            name = escape_html(event["args"]["name"] or "")
-            tx_hash = escape_html(event["transactionHash"].hex() or "")
-            location = contract.functions.climbingLocations(location_id).call()
-            message = (
-                f"New climb by {escape_html(creator[:6])}...! 🧗\n"
-                f"Name: {name}\n"
-                f"Location: ({int(location[3] or 0)/10**6:.4f}, {int(location[4] or 0)/10**6:.4f})\n"
-                f"Tx: {tx_hash}"
-            )
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                    json={
-                        "chat_id": CHAT_HANDLE,
-                        "text": message,
-                        "parse_mode": "HTML"
-                    }
-                ) as response:
-                    logger.info(f"Sent climb notification to chat: {await response.json()}")
+        logger.info(f"Checking events from block {latest_block-10} to {latest_block}")
+        
+        # Monitor all relevant events
+        event_types = [
+            ("ProfileCreated", contract.events.ProfileCreated),
+            ("ClimbingLocationCreated", contract.events.ClimbingLocationCreated),
+            ("CommentAdded", contract.events.CommentAdded),
+            ("LocationPurchased", contract.events.LocationPurchased),
+            ("TournamentCreated", contract.events.TournamentCreated),
+            ("TournamentJoined", contract.events.TournamentJoined),
+            ("TournamentEnded", contract.events.TournamentEnded)
+        ]
+        
+        for event_name, event_obj in event_types:
+            event_filter = event_obj.create_filter(from_block=latest_block-10, to_block=latest_block)
+            events = event_filter.get_all_entries()
+            logger.info(f"Found {len(events)} {event_name} events")
+            for event in events:
+                tx_hash = escape_html(event["transactionHash"].hex() or "")
+                if event_name == "ProfileCreated":
+                    user = event["args"]["user"] or ""
+                    message = f"New climber {escape_html(user[:6])}... joined EmpowerTours! 🧗 Tx: {tx_hash}"
+                elif event_name == "ClimbingLocationCreated":
+                    location_id = event["args"]["locationId"]
+                    creator = event["args"]["creator"] or ""
+                    name = escape_html(event["args"]["name"] or "")
+                    location = contract.functions.climbingLocations(location_id).call()
+                    message = (
+                        f"New climb by {escape_html(creator[:6])}...! 🧗\n"
+                        f"Name: {name}\n"
+                        f"Location: ({int(location[3] or 0)/10**6:.4f}, {int(location[4] or 0)/10**6:.4f})\n"
+                        f"Tx: {tx_hash}"
+                    )
+                elif event_name == "CommentAdded":
+                    entry_id = event["args"]["entryId"]
+                    commenter = event["args"]["commenter"] or ""
+                    message = f"New comment by {escape_html(commenter[:6])}... on entry {entry_id}! 🗣️ Tx: {tx_hash}"
+                elif event_name == "LocationPurchased":
+                    location_id = event["args"]["locationId"]
+                    buyer = event["args"]["buyer"] or ""
+                    message = f"Climb {location_id} purchased by {escape_html(buyer[:6])}...! 🪙 Tx: {tx_hash}"
+                elif event_name == "TournamentCreated":
+                    tournament_id = event["args"]["tournamentId"]
+                    entry_fee = event["args"]["entryFee"] / 10**18
+                    message = f"New tournament {tournament_id} created with {entry_fee:.2f} $TOURS entry fee! 🏆 Tx: {tx_hash}"
+                elif event_name == "TournamentJoined":
+                    tournament_id = event["args"]["tournamentId"]
+                    participant = event["args"]["participant"] or ""
+                    message = f"Climber {escape_html(participant[:6])}... joined tournament {tournament_id}! 🏆 Tx: {tx_hash}"
+                elif event_name == "TournamentEnded":
+                    tournament_id = event["args"]["tournamentId"]
+                    winner = event["args"]["winner"] or ""
+                    pot = event["args"]["pot"] / 10**18
+                    message = f"Tournament {tournament_id} ended! Winner: {escape_html(winner[:6])}... Pot: {pot:.2f} $TOURS 🏆 Tx: {tx_hash}"
+                
+                logger.info(f"Preparing to send {event_name} notification: {message}")
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                        json={
+                            "chat_id": CHAT_HANDLE,
+                            "text": message,
+                            "parse_mode": "HTML"
+                        }
+                    ) as response:
+                        response_data = await response.json()
+                        if response_data.get("ok"):
+                            logger.info(f"Sent {event_name} notification to chat: {response_data}")
+                        else:
+                            logger.error(f"Failed to send {event_name} notification: {response_data}")
     except Exception as e:
         logger.error(f"Error in monitor_events: {str(e)}")
 
