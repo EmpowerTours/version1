@@ -334,6 +334,7 @@ pending_wallets = {}
 journal_data = {}
 build_data = {}
 sessions = {}
+webhook_failed = False
 
 def initialize_web3():
     global w3, contract, tours_contract
@@ -390,27 +391,27 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Tutorial unavailable due to configuration issues. Try /help! 😅")
         return
     tutorial_text = (
-        f"🌟 Tutorial 🌟\n"
-        "1️⃣ *Wallet*:\n"
+        f"🌟 <b>Tutorial</b> 🌟\n"
+        "1️⃣ <b>Wallet</b>:\n"
         "- Get MetaMask/Phantom/Gnosis Safe.\n"
-        f"- Add Monad testnet (RPC: {MONAD_RPC_URL}, ID: 10143).\n"
+        f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
         "- Get $MON: <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>\n"
-        "2️⃣ *Connect*:\n"
+        "2️⃣ <b>Connect</b>:\n"
         "- Use /connectwallet to connect via MetaMask/WalletConnect\n"
-        "3️⃣ *Profile*:\n"
+        "3️⃣ <b>Profile</b>:\n"
         "- /createprofile (1 $MON)\n"
-        "4️⃣ *Explore*:\n"
-        "- /journal <text>\n"
-        "- /comment <id> <text>\n"
-        "- /buildaclimb <name> <difficulty>\n"
-        "- /purchaseclimb <id>\n"
+        "4️⃣ <b>Explore</b>:\n"
+        "- /journal [your journal entry]\n"
+        "- /comment [id] [your comment]\n"
+        "- /buildaclimb [name] [difficulty]\n"
+        "- /purchaseclimb [id]\n"
         "- /findaclimb\n"
-        "- /createtournament <fee>\n"
-        "- /jointournament <id>\n"
-        "- /endtournament <id> <winner>\n"
+        "- /createtournament [fee]\n"
+        "- /jointournament [id]\n"
+        "- /endtournament [id] [winner]\n"
         "- /balance\n"
         "- /help\n"
-        f"Join <a href=\"https://t.me/empowertourschat\">{CHAT_HANDLE}</a>! Try /connectwallet! 🪨"
+        f"Join <a href=\"https://t.me/empowertourschat\">{escape_html(CHAT_HANDLE)}</a>! Try /connectwallet! 🪨"
     )
     await update.message.reply_text(tutorial_text, parse_mode="HTML")
 
@@ -549,7 +550,7 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         content = " ".join(context.args)
         if not content:
-            await update.message.reply_text("Use: /journal Conquered Mt. Monad! Then photo. 📸")
+            await update.message.reply_text("Use: /journal [your journal entry] Then photo. 📸")
             return
         await update.message.reply_text(f"Great, {update.effective_user.first_name}! Send photo. 🌟")
         journal_data[user_id] = {"content": content, "awaiting_photo": True}
@@ -574,7 +575,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not wallet_address:
                 await update.message.reply_text("Use /connectwallet! 🪙")
                 return
-            tx = contract.functions.addJournalEntry(journal_data[user_id]["content"]).build_transaction({
+            tx = contract.functions.addJournalEntry(journal_data[user_id]["photo_id"]).build_transaction({
                 'from': wallet_address,
                 'nonce': w3.eth.get_transaction_count(wallet_address),
                 'gas': 200000,
@@ -608,7 +609,7 @@ async def add_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         args = context.args
         if len(args) < 2:
-            await update.message.reply_text("Use: /comment 1 Epic climb! (0.1 $MON) 🗣️")
+            await update.message.reply_text("Use: /comment [id] [your comment] (0.1 $MON) 🗣️")
             return
         entry_id = int(args[0])
         content = " ".join(args[1:])
@@ -646,7 +647,7 @@ async def build_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         args = context.args
         if len(args) < 2:
-            await update.message.reply_text("Use: /buildaclimb EpicPeak Hard. Then photo, location. 📍")
+            await update.message.reply_text("Use: /buildaclimb [name] [difficulty] Then photo, location. 📍")
             return
         name = args[0]
         difficulty = args[1].capitalize()
@@ -710,7 +711,7 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         args = context.args
         if len(args) < 1:
-            await update.message.reply_text("Use: /purchaseclimb 1 🪙")
+            await update.message.reply_text("Use: /purchaseclimb [id] 🪙")
             return
         location_id = int(args[0])
         wallet_address = sessions.get(user_id, {}).get("wallet_address")
@@ -745,7 +746,7 @@ async def create_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         args = context.args
         if len(args) < 1:
-            await update.message.reply_text("Use: /createtournament 10 🏆")
+            await update.message.reply_text("Use: /createtournament [fee] 🏆")
             return
         entry_fee = int(float(args[0]) * 10**18)
         wallet_address = sessions.get(user_id, {}).get("wallet_address")
@@ -780,7 +781,7 @@ async def join_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         args = context.args
         if len(args) < 1:
-            await update.message.reply_text("Use: /jointournament 1 🏆")
+            await update.message.reply_text("Use: /jointournament [id] 🏆")
             return
         tournament_id = int(args[0])
         wallet_address = sessions.get(user_id, {}).get("wallet_address")
@@ -815,7 +816,7 @@ async def end_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         args = context.args
         if len(args) < 2:
-            await update.message.reply_text("Use: /endtournament 1 0xWinner 🏆")
+            await update.message.reply_text("Use: /endtournament [id] [winner] 🏆")
             return
         tournament_id = int(args[0])
         winner_address = args[1]
@@ -905,35 +906,35 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/tutorial - Guide\n"
             "/connectwallet - Connect wallet\n"
             "/createprofile - Join (1 $MON)\n"
-            "/journal <text> - Log climb\n"
-            "/comment <id> <text> - Comment (0.1 $MON)\n"
-            "/buildaclimb <name> <difficulty> - Create climb\n"
-            "/purchaseclimb <id> - Buy climb\n"
+            "/journal [your journal entry] - Log climb\n"
+            "/comment [id] [your comment] - Comment (0.1 $MON)\n"
+            "/buildaclimb [name] [difficulty] - Create climb\n"
+            "/purchaseclimb [id] - Buy climb\n"
             "/findaclimb - Explore climbs\n"
-            "/createtournament <fee> - Start tournament\n"
-            "/jointournament <id> - Join tournament\n"
-            "/endtournament <id> <winner> - End tournament\n"
+            "/createtournament [fee] - Start tournament\n"
+            "/jointournament [id] - Join tournament\n"
+            "/endtournament [id] [winner] - End tournament\n"
             "/balance - Check balance\n"
             "/help - Menu"
         )
         return
     await update.message.reply_text(
         f"🏔️ Commands 🧗‍♀️\n"
-        "/start - Begin\n"
-        "/tutorial - Guide\n"
-        "/connectwallet - Connect wallet\n"
-        "/createprofile - Join (1 $MON)\n"
-        "/journal <text> - Log climb\n"
-        "/comment <id> <text> - Comment (0.1 $MON)\n"
-        "/buildaclimb <name> <difficulty> - Create climb\n"
-        "/purchaseclimb <id> - Buy climb\n"
-        "/findaclimb - Explore climbs\n"
-        "/createtournament <fee> - Start tournament\n"
-        "/jointournament <id> - Join tournament\n"
-        "/endtournament <id> <winner> - End tournament\n"
-        "/balance - Check balance\n"
-        "/help - Menu\n"
-        f"Join <a href=\"https://t.me/empowertourschat\">{CHAT_HANDLE}</a>! 🌄",
+        "<b>/start</b> - Begin\n"
+        "<b>/tutorial</b> - Guide\n"
+        "<b>/connectwallet</b> - Connect wallet\n"
+        "<b>/createprofile</b> - Join (1 $MON)\n"
+        "<b>/journal [your journal entry]</b> - Log climb\n"
+        "<b>/comment [id] [your comment]</b> - Comment (0.1 $MON)\n"
+        "<b>/buildaclimb [name] [difficulty]</b> - Create climb\n"
+        "<b>/purchaseclimb [id]</b> - Buy climb\n"
+        "<b>/findaclimb</b> - Explore climbs\n"
+        "<b>/createtournament [fee]</b> - Start tournament\n"
+        "<b>/jointournament [id]</b> - Join tournament\n"
+        "<b>/endtournament [id] [winner]</b> - End tournament\n"
+        "<b>/balance</b> - Check balance\n"
+        "<b>/help</b> - Menu\n"
+        f"Join <a href=\"https://t.me/empowertourschat\">{escape_html(CHAT_HANDLE)}</a>! 🌄",
         parse_mode="HTML"
     )
 
@@ -943,7 +944,8 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
             logger.error("Event monitoring skipped due to Web3, contract, or environment variable unavailability")
             return
         latest_block = w3.eth.block_number
-        events = contract.events.ClimbingLocationCreated.get_logs(fromBlock=latest_block-10, toBlock=latest_block)
+        event_filter = contract.events.ClimbingLocationCreated.create_filter(fromBlock=latest_block-10, toBlock=latest_block)
+        events = event_filter.get_all_entries()
         for event in events:
             location_id = event["args"]["locationId"]
             creator = event["args"]["creator"] or ""
@@ -965,7 +967,7 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
                         "parse_mode": "HTML"
                     }
                 ) as response:
-                    logger.info("Sent climb notification to chat")
+                    logger.info(f"Sent climb notification to chat: {await response.json()}")
     except Exception as e:
         logger.error(f"Error in monitor_events: {str(e)}")
 
@@ -1211,6 +1213,8 @@ async def webhook(request: Request):
             raise HTTPException(status_code=400, detail="Invalid update")
     except Exception as e:
         logger.error(f"Error in webhook: {str(e)}")
+        global webhook_failed
+        webhook_failed = True
         raise HTTPException(status_code=500, detail=str(e))
 
 # Initialize Telegram Bot
@@ -1240,6 +1244,9 @@ async def init_bot():
         await bot_app.initialize()
         await bot_app.start()
         logger.info("Telegram bot initialized")
+        if webhook_failed:
+            logger.warning("Webhook failed, starting polling as fallback")
+            await bot_app.updater.start_polling(drop_pending_updates=True, poll_interval=1.0, timeout=10)
     except Exception as e:
         logger.error(f"Error initializing bot: {str(e)}")
         raise
@@ -1264,6 +1271,8 @@ async def startup_event():
                 logger.info(f"Webhook set: {await response.json()}")
     else:
         logger.error("TELEGRAM_TOKEN or API_BASE_URL missing, webhook not set")
+        global webhook_failed
+        webhook_failed = True
 
 @app.on_event("shutdown")
 async def shutdown_event():
