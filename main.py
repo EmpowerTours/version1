@@ -423,7 +423,10 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         user_id = str(update.effective_user.id)
-        connect_url = f"{API_BASE_URL}/public/connect.html?userId={user_id}"
+        # Ensure no double slashes in URL
+        base_url = API_BASE_URL.rstrip('/')
+        connect_url = f"{base_url}/public/connect.html?userId={user_id}"
+        logger.info(f"Generated connect URL: {connect_url}")
         keyboard = [[InlineKeyboardButton("Connect with MetaMask/WalletConnect", url=connect_url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -943,8 +946,8 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
         if not w3 or not contract or not CHAT_HANDLE or not TELEGRAM_TOKEN:
             logger.error("Event monitoring skipped due to Web3, contract, or environment variable unavailability")
             return
-        latest_block = w3.eth.block_number
-        event_filter = contract.events.ClimbingLocationCreated.create_filter(fromBlock=latest_block-10, toBlock=latest_block)
+        latest_block = w3.eth.get_block_number()
+        event_filter = contract.events.ClimbingLocationCreated.create_filter(from_block=latest_block-10, to_block=latest_block)
         events = event_filter.get_all_entries()
         for event in events:
             location_id = event["args"]["locationId"]
@@ -967,7 +970,7 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
                         "parse_mode": "HTML"
                     }
                 ) as response:
-                    logger.info("Sent climb notification to chat")
+                    logger.info(f"Sent climb notification to chat: {await response.json()}")
     except Exception as e:
         logger.error(f"Error in monitor_events: {str(e)}")
 
@@ -1288,11 +1291,4 @@ def handle_shutdown(signum, frame):
     logger.info("Received shutdown signal, stopping application...")
     if hasattr(app.state, "bot_application"):
         asyncio.create_task(app.state.bot_application.updater.stop())
-        asyncio.create_task(app.state.bot_application.stop())
-        asyncio.create_task(app.state.bot_application.shutdown())
-
-signal.signal(signal.SIGINT, handle_shutdown)
-signal.signal(signal.SIGTERM, handle_shutdown)
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+        asyncio.create_task(app.state.bot_application.stop
