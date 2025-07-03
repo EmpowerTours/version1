@@ -1,3 +1,5 @@
+0x627A122dA847FaF88Ddbca796A4BC55bc7d99dC1
+
 import logging
 import os
 import signal
@@ -76,92 +78,279 @@ CONTRACT_ABI = [
         "type": "constructor"
     },
     {
-        "anonymous": False,
+        "inputs": [],
+        "name": "FarcasterFidTaken",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InsufficientFee",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InsufficientTokenBalance",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidEntryId",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidFarcasterFid",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidLocationId",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidTournamentId",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "NotParticipant",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "PaymentFailed",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "ProfileExists",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "ProfileRequired",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "TournamentNotActive",
+        "type": "error"
+    },
+    {
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "creator", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "name", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+            {"indexed": true, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "creator", "type": "address"},
+            {"indexed": false, "internalType": "string", "name": "name", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
         ],
         "name": "ClimbingLocationCreated",
         "type": "event"
     },
     {
-        "anonymous": False,
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "author", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+            {"indexed": true, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "creator", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "string", "name": "name", "type": "string"},
+            {"indexed": false, "internalType": "string", "name": "difficulty", "type": "string"},
+            {"indexed": false, "internalType": "int256", "name": "latitude", "type": "int256"},
+            {"indexed": false, "internalType": "int256", "name": "longitude", "type": "int256"},
+            {"indexed": false, "internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
         ],
-        "name": "JournalEntryAdded",
+        "name": "ClimbingLocationCreatedEnhanced",
         "type": "event"
     },
     {
-        "anonymous": False,
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "entryId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "commenter", "type": "address"},
-            {"indexed": False, "internalType": "string", "name": "contentHash", "type": "string"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+            {"indexed": true, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "commenter", "type": "address"},
+            {"indexed": false, "internalType": "string", "name": "contentHash", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
         ],
         "name": "CommentAdded",
         "type": "event"
     },
     {
-        "anonymous": False,
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "locationId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "buyer", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+            {"indexed": true, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "commenter", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "string", "name": "contentHash", "type": "string"},
+            {"indexed": false, "internalType": "string", "name": "farcasterCastHash", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "CommentAddedEnhanced",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "address", "name": "user", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "string", "name": "castHash", "type": "string"},
+            {"indexed": false, "internalType": "string", "name": "contentType", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "contentId", "type": "uint256"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "FarcasterCastShared",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "address", "name": "user", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "string", "name": "newUsername", "type": "string"},
+            {"indexed": false, "internalType": "string", "name": "newBio", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "FarcasterProfileUpdated",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "author", "type": "address"},
+            {"indexed": false, "internalType": "string", "name": "contentHash", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "JournalEntryAdded",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "uint256", "name": "entryId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "author", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "string", "name": "contentHash", "type": "string"},
+            {"indexed": false, "internalType": "string", "name": "location", "type": "string"},
+            {"indexed": false, "internalType": "string", "name": "difficulty", "type": "string"},
+            {"indexed": false, "internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "JournalEntryAddedEnhanced",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "buyer", "type": "address"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
         ],
         "name": "LocationPurchased",
         "type": "event"
     },
     {
-        "anonymous": False,
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "address", "name": "user", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+            {"indexed": true, "internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "buyer", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "LocationPurchasedEnhanced",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "address", "name": "previousOwner", "type": "address"},
+            {"indexed": true, "internalType": "address", "name": "newOwner", "type": "address"}
+        ],
+        "name": "OwnershipTransferred",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "address", "name": "user", "type": "address"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
         ],
         "name": "ProfileCreated",
         "type": "event"
     },
     {
-        "anonymous": False,
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "entryFee", "type": "uint256"},
-            {"indexed": False, "internalType": "uint256", "name": "startTime", "type": "uint256"}
+            {"indexed": true, "internalType": "address", "name": "user", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "string", "name": "farcasterUsername", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256"}
+        ],
+        "name": "ProfileCreatedEnhanced",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": false, "internalType": "uint256", "name": "entryFee", "type": "uint256"},
+            {"indexed": false, "internalType": "uint256", "name": "startTime", "type": "uint256"}
         ],
         "name": "TournamentCreated",
         "type": "event"
     },
     {
-        "anonymous": False,
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "winner", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "pot", "type": "uint256"}
+            {"indexed": true, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "creator", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "string", "name": "tournamentName", "type": "string"},
+            {"indexed": false, "internalType": "uint256", "name": "entryFee", "type": "uint256"},
+            {"indexed": false, "internalType": "uint256", "name": "startTime", "type": "uint256"}
+        ],
+        "name": "TournamentCreatedEnhanced",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "winner", "type": "address"},
+            {"indexed": false, "internalType": "uint256", "name": "pot", "type": "uint256"}
         ],
         "name": "TournamentEnded",
         "type": "event"
     },
     {
-        "anonymous": False,
+        "anonymous": false,
         "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "participant", "type": "address"}
+            {"indexed": true, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "winner", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "winnerFarcasterFid", "type": "uint256"},
+            {"indexed": false, "internalType": "uint256", "name": "pot", "type": "uint256"}
+        ],
+        "name": "TournamentEndedEnhanced",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "participant", "type": "address"}
         ],
         "name": "TournamentJoined",
         "type": "event"
     },
     {
-        "inputs": [{"internalType": "string", "name": "contentHash", "type": "string"}],
-        "name": "addJournalEntry",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
+        "anonymous": false,
+        "inputs": [
+            {"indexed": true, "internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"indexed": true, "internalType": "address", "name": "participant", "type": "address"},
+            {"indexed": true, "internalType": "uint256", "name": "farcasterFid", "type": "uint256"}
+        ],
+        "name": "TournamentJoinedEnhanced",
+        "type": "event"
     },
     {
         "inputs": [
@@ -171,6 +360,56 @@ CONTRACT_ABI = [
         "name": "addComment",
         "outputs": [],
         "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "entryId", "type": "uint256"},
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"}
+        ],
+        "name": "addCommentWithFarcaster",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "string", "name": "contentHash", "type": "string"}
+        ],
+        "name": "addJournalEntry",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "string", "name": "location", "type": "string"},
+            {"internalType": "string", "name": "difficulty", "type": "string"},
+            {"internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"}
+        ],
+        "name": "addJournalEntryWithDetails",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"components": [
+                {"internalType": "string", "name": "name", "type": "string"},
+                {"internalType": "string", "name": "difficulty", "type": "string"},
+                {"internalType": "int256", "name": "latitude", "type": "int256"},
+                {"internalType": "int256", "name": "longitude", "type": "int256"},
+                {"internalType": "string", "name": "photoHash", "type": "string"},
+                {"internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"},
+                {"internalType": "string", "name": "farcasterCastHash", "type": "string"}
+            ], "internalType": "struct EmpowerTours.ClimbingLocationParams", "name": "params", "type": "tuple"}
+        ],
+        "name": "createClimbingLocationWithFarcaster",
+        "outputs": [],
+        "stateMutability": "nonpayable",
         "type": "function"
     },
     {
@@ -194,8 +433,34 @@ CONTRACT_ABI = [
         "type": "function"
     },
     {
-        "inputs": [{"internalType": "uint256", "name": "entryFee", "type": "uint256"}],
+        "inputs": [
+            {"internalType": "uint256", "name": "_farcasterFid", "type": "uint256"},
+            {"internalType": "string", "name": "_farcasterUsername", "type": "string"},
+            {"internalType": "string", "name": "_farcasterBio", "type": "string"}
+        ],
+        "name": "createProfileWithFarcaster",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "entryFee", "type": "uint256"}
+        ],
         "name": "createTournament",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "entryFee", "type": "uint256"},
+            {"internalType": "string", "name": "tournamentName", "type": "string"},
+            {"internalType": "string", "name": "description", "type": "string"},
+            {"internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"}
+        ],
+        "name": "createTournamentWithFarcaster",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
@@ -211,29 +476,38 @@ CONTRACT_ABI = [
         "type": "function"
     },
     {
-        "inputs": [],
-        "name": "getClimbingLocationCount",
+        "inputs": [
+            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"},
+            {"internalType": "address", "name": "winner", "type": "address"}
+        ],
+        "name": "endTournamentWithFarcaster",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "name": "farcasterFidToAddress",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "entryId", "type": "uint256"}
+        ],
+        "name": "getCommentCount",
         "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
         "stateMutability": "view",
         "type": "function"
     },
     {
-        "inputs": [{"internalType": "uint256", "name": "tournamentId", "type": "uint256"}],
-        "name": "joinTournament",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [{"internalType": "uint256", "name": "locationId", "type": "uint256"}],
-        "name": "purchaseClimbingLocation",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-        "name": "climbingLocations",
+        "inputs": [
+            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
+        ],
+        "name": "getClimbingLocation",
         "outputs": [
             {"internalType": "address", "name": "creator", "type": "address"},
             {"internalType": "string", "name": "name", "type": "string"},
@@ -241,8 +515,151 @@ CONTRACT_ABI = [
             {"internalType": "int256", "name": "latitude", "type": "int256"},
             {"internalType": "int256", "name": "longitude", "type": "int256"},
             {"internalType": "string", "name": "photoHash", "type": "string"},
-            {"internalType": "uint256", "name": "timestamp", "type": "uint256"}
+            {"internalType": "uint256", "name": "timestamp", "type": "uint256"},
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"},
+            {"internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"},
+            {"internalType": "uint256", "name": "purchaseCount", "type": "uint256"}
         ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "getClimbingLocationCount",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "entryId", "type": "uint256"}
+        ],
+        "name": "getJournalEntry",
+        "outputs": [
+            {"internalType": "address", "name": "author", "type": "address"},
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "uint256", "name": "timestamp", "type": "uint256"},
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"},
+            {"internalType": "string", "name": "location", "type": "string"},
+            {"internalType": "string", "name": "difficulty", "type": "string"},
+            {"internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "getJournalEntryCount",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"}
+        ],
+        "name": "getJournalEntriesByFarcasterFid",
+        "outputs": [{"internalType": "uint256[]", "name": "", "type": "uint256[]"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"}
+        ],
+        "name": "getLocationsByFarcasterFid",
+        "outputs": [{"internalType": "uint256[]", "name": "", "type": "uint256[]"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"}
+        ],
+        "name": "getProfileByFarcasterFid",
+        "outputs": [
+            {"internalType": "address", "name": "userAddress", "type": "address"},
+            {"internalType": "bool", "name": "exists", "type": "bool"},
+            {"internalType": "uint256", "name": "journalCount", "type": "uint256"},
+            {"internalType": "string", "name": "farcasterUsername", "type": "string"},
+            {"internalType": "string", "name": "farcasterBio", "type": "string"},
+            {"internalType": "uint256", "name": "createdAt", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "getTournamentCount",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"},
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "name": "journalComments",
+        "outputs": [
+            {"internalType": "address", "name": "commenter", "type": "address"},
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "uint256", "name": "timestamp", "type": "uint256"},
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "name": "journalEntries",
+        "outputs": [
+            {"internalType": "address", "name": "author", "type": "address"},
+            {"internalType": "string", "name": "contentHash", "type": "string"},
+            {"internalType": "uint256", "name": "timestamp", "type": "uint256"},
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"},
+            {"internalType": "string", "name": "location", "type": "string"},
+            {"internalType": "string", "name": "difficulty", "type": "string"},
+            {"internalType": "bool", "name": "isSharedOnFarcaster", "type": "bool"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "journalReward",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"}
+        ],
+        "name": "joinTournament",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "tournamentId", "type": "uint256"}
+        ],
+        "name": "joinTournamentWithFarcaster",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "legacyWallet",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
         "stateMutability": "view",
         "type": "function"
     },
@@ -254,12 +671,9 @@ CONTRACT_ABI = [
         "type": "function"
     },
     {
-        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-        "name": "profiles",
-        "outputs": [
-            {"internalType": "bool", "name": "exists", "type": "bool"},
-            {"internalType": "uint256", "name": "journalCount", "type": "uint256"}
-        ],
+        "inputs": [],
+        "name": "owner",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
         "stateMutability": "view",
         "type": "function"
     },
@@ -271,9 +685,62 @@ CONTRACT_ABI = [
         "type": "function"
     },
     {
+        "inputs": [
+            {"internalType": "address", "name": "", "type": "address"}
+        ],
+        "name": "profiles",
+        "outputs": [
+            {"internalType": "bool", "name": "exists", "type": "bool"},
+            {"internalType": "uint256", "name": "journalCount", "type": "uint256"},
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"internalType": "string", "name": "farcasterUsername", "type": "string"},
+            {"internalType": "string", "name": "farcasterBio", "type": "string"},
+            {"internalType": "uint256", "name": "createdAt", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
+        ],
+        "name": "purchaseClimbingLocation",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "locationId", "type": "uint256"}
+        ],
+        "name": "purchaseClimbingLocationWithFarcaster",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
         "inputs": [],
-        "name": "commentFee",
-        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "name": "renounceOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "", "type": "uint256"}
+        ],
+        "name": "tournaments",
+        "outputs": [
+            {"internalType": "uint256", "name": "entryFee", "type": "uint256"},
+            {"internalType": "uint256", "name": "totalPot", "type": "uint256"},
+            {"internalType": "address", "name": "winner", "type": "address"},
+            {"internalType": "bool", "name": "isActive", "type": "bool"},
+            {"internalType": "uint256", "name": "startTime", "type": "uint256"},
+            {"internalType": "uint256", "name": "farcasterFid", "type": "uint256"},
+            {"internalType": "string", "name": "farcasterCastHash", "type": "string"},
+            {"internalType": "string", "name": "tournamentName", "type": "string"},
+            {"internalType": "string", "name": "description", "type": "string"}
+        ],
         "stateMutability": "view",
         "type": "function"
     },
@@ -283,12 +750,31 @@ CONTRACT_ABI = [
         "outputs": [{"internalType": "contract IERC20", "name": "", "type": "address"}],
         "stateMutability": "view",
         "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "newOwner", "type": "address"}
+        ],
+        "name": "transferOwnership",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "string", "name": "newUsername", "type": "string"},
+            {"internalType": "string", "name": "newBio", "type": "string"}
+        ],
+        "name": "updateFarcasterProfile",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
     }
 ]
 
 TOURS_ABI = [
     {
-        "constant": False,
+        "constant": false,
         "inputs": [
             {"name": "_to", "type": "address"},
             {"name": "_value", "type": "uint256"}
@@ -298,14 +784,14 @@ TOURS_ABI = [
         "type": "function"
     },
     {
-        "constant": True,
+        "constant": true,
         "inputs": [{"name": "_owner", "type": "address"}],
         "name": "balanceOf",
         "outputs": [{"name": "balance", "type": "uint256"}],
         "type": "function"
     },
     {
-        "constant": False,
+        "constant": false,
         "inputs": [
             {"name": "_spender", "type": "address"},
             {"name": "_value", "type": "uint256"}
@@ -315,7 +801,7 @@ TOURS_ABI = [
         "type": "function"
     },
     {
-        "constant": True,
+        "constant": true,
         "inputs": [
             {"name": "_owner", "type": "address"},
             {"name": "_spender", "type": "address"}
@@ -388,29 +874,51 @@ async def send_notification(chat_id, message):
                 logger.error(f"Failed to send notification to chat {chat_id}: {response_data}")
             return response_data
 
+async def check_webhook():
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getWebhookInfo") as response:
+            data = await response.json()
+            logger.info(f"Webhook info: {data}")
+            return data.get("ok") and data.get("result", {}).get("url") == f"{API_BASE_URL}/webhook"
+
+async def reset_webhook():
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
+            json={"drop_pending_updates": True}
+        ) as response:
+            logger.info(f"Webhook cleared: {await response.json()}")
+        async with session.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
+            json={"url": f"{API_BASE_URL}/webhook", "drop_pending_updates": True}
+        ) as response:
+            logger.info(f"Webhook set: {await response.json()}")
+
 # Telegram Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /start command from user {update.effective_user.id}")
-    if not CHAT_HANDLE:
-        logger.error("CHAT_HANDLE missing, /start command limited")
+    try:
         await update.message.reply_text(
-            "Welcome to EmpowerTours, your rock climbing adventure hub! 🌄\nNew here? Start with /tutorial to set up your wallet and profile."
+            "Welcome to EmpowerTours, your rock climbing adventure hub! 🌄\nNew here? Start with /tutorial to set up your wallet and profile.\nReady to climb? Join our community at EmpowerTours Chat[](https://t.me/empowertourschat)! 🪨",
+            parse_mode="HTML"
         )
-        return
-    await update.message.reply_text(
-        f"Welcome to EmpowerTours, your rock climbing adventure hub! 🌄\nNew here? Start with /tutorial to set up your wallet and profile.\nReady to climb? Join our community at EmpowerTours Chat[](https://t.me/empowertourschat)! 🪨",
-        parse_mode="HTML"
-    )
+    except Exception as e:
+        logger.error(f"Error in /start: {str(e)}")
+        await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /tutorial command from user {update.effective_user.id}")
-    if not CHAT_HANDLE or not MONAD_RPC_URL:
-        logger.error("CHAT_HANDLE or MONAD_RPC_URL missing, /tutorial command limited")
-        await update.message.reply_text("Tutorial unavailable due to configuration issues. Try /help! 😅")
-        return
     try:
+        if not CHAT_HANDLE or not MONAD_RPC_URL:
+            logger.error("CHAT_HANDLE or MONAD_RPC_URL missing, /tutorial command limited")
+            await update.message.reply_text("Tutorial unavailable due to configuration issues. Try /help! 😅")
+            return
+        webhook_ok = await check_webhook()
+        if not webhook_ok:
+            logger.warning("Webhook not set correctly, attempting to reset")
+            await reset_webhook()
         tutorial_text = (
-            f"🌟 <b>Tutorial</b> 🌟\n"
+            "🌟 <b>Tutorial</b> 🌟\n"
             "1️⃣ <b>Wallet</b>:\n"
             "- Get MetaMask/Phantom/Gnosis Safe.\n"
             f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
@@ -430,12 +938,37 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "- /endtournament [id] [winner]\n"
             "- /balance\n"
             "- /help\n"
-            f"Join EmpowerTours Chat[](https://t.me/empowertourschat)! Try /connectwallet! 🪨"
+            "Join EmpowerTours Chat[](https://t.me/empowertourschat)! Try /connectwallet! 🪨"
         )
         await update.message.reply_text(tutorial_text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error in /tutorial: {str(e)}")
         await update.message.reply_text(f"Error in tutorial: {str(e)}. Try again! 😅")
+
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /help command from user {update.effective_user.id}")
+    try:
+        help_text = (
+            "🧗 <b>EmpowerTours Commands</b> 🧗\n"
+            "/start - Welcome message\n"
+            "/tutorial - Setup guide\n"
+            "/connectwallet - Connect your wallet\n"
+            "/createprofile - Create profile (1 $MON)\n"
+            "/journal [entry] - Log a climb (5 $TOURS)\n"
+            "/comment [id] [comment] - Comment on a journal (0.1 $MON)\n"
+            "/buildaclimb [name] [difficulty] - Create a climb (10 $TOURS)\n"
+            "/purchaseclimb [id] - Buy a climb (10 $TOURS)\n"
+            "/findaclimb - List climbs\n"
+            "/createtournament [fee] - Start a tournament\n"
+            "/jointournament [id] - Join a tournament\n"
+            "/endtournament [id] [winner] - End a tournament\n"
+            "/balance - Check wallet balance\n"
+            "Join EmpowerTours Chat[](https://t.me/empowertourschat)! 🪨"
+        )
+        await update.message.reply_text(help_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Error in /help: {str(e)}")
+        await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /connectwallet command from user {update.effective_user.id}")
@@ -500,60 +1033,16 @@ async def create_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'gas': 200000,
             'gasPrice': w3.eth.gas_price
         })
-        payment_tx = {
-            'to': OWNER_ADDRESS,
-            'value': w3.to_wei(1, 'ether'),
-            'nonce': w3.eth.get_transaction_count(wallet_address) + 1,
-            'gas': 21000,
-            'gasPrice': w3.eth.gas_price
-        }
         await update.message.reply_text(
-            f"Please send the signed transaction hash for profile creation using your wallet ({wallet_address})."
+            f"Please send the signed transaction hash for profile creation (1 $MON) using your wallet ({wallet_address})."
         )
         pending_wallets[user_id] = {
             "awaiting_tx": True,
             "tx_data": tx,
-            "next_tx": {"tx_data": payment_tx},
             "wallet_address": wallet_address
         }
     except Exception as e:
         logger.error(f"Error in /createprofile: {str(e)}")
-        await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
-
-async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    logger.info(f"Received transaction hash from user {user_id}: {update.message.text}")
-    if user_id not in pending_wallets or not pending_wallets[user_id].get("awaiting_tx"):
-        logger.warning(f"No pending transaction for user {user_id}")
-        return
-    tx_hash = update.message.text.strip()
-    if not tx_hash.startswith("0x") or len(tx_hash) != 66:
-        await update.message.reply_text("Invalid transaction hash. Send a valid hash (e.g., 0x123...).")
-        return
-    try:
-        if not w3:
-            raise Exception("Web3 not available")
-        receipt = w3.eth.get_transaction_receipt(tx_hash)
-        if receipt and receipt.status:
-            if pending_wallets[user_id].get("next_tx"):
-                await update.message.reply_text(
-                    "Profile creation transaction confirmed! Please send the signed transaction hash for the payment (1 $MON to owner) using your wallet."
-                )
-                pending_wallets[user_id] = {
-                    "awaiting_tx": True,
-                    "tx_data": pending_wallets[user_id]["next_tx"]["tx_data"],
-                    "wallet_address": pending_wallets[user_id]["wallet_address"]
-                }
-            else:
-                await update.message.reply_text(f"Profile created successfully! Tx: {tx_hash} 🪙")
-                if CHAT_HANDLE and TELEGRAM_TOKEN:
-                    message = f"New climber {escape_html(update.effective_user.username or update.effective_user.first_name)} joined EmpowerTours! 🧗 Tx: {escape_html(tx_hash)}"
-                    await send_notification(CHAT_HANDLE, message)
-                del pending_wallets[user_id]
-        else:
-            await update.message.reply_text("Transaction failed or pending. Check and try again! 😅")
-    except Exception as e:
-        logger.error(f"Error in handle_tx_hash: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
 async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -752,6 +1241,37 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /purchaseclimb: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
+async def find_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /findaclimb command from user {update.effective_user.id}")
+    if not API_BASE_URL:
+        logger.error("API_BASE_URL missing, /findaclimb command disabled")
+        await update.message.reply_text("Climb listing unavailable due to configuration issues. Try again later! 😅")
+        return
+    try:
+        if not w3 or not contract:
+            await update.message.reply_text("Blockchain connection unavailable. Try again later! 😅")
+            return
+        count = contract.functions.getClimbingLocationCount().call()
+        if count == 0:
+            await update.message.reply_text("No climbs found. Create one with /buildaclimb! 🪨")
+            return
+        climbs = []
+        for i in range(count):
+            location = contract.functions.getClimbingLocation(i).call()
+            climbs.append(
+                f"ID: {i}\n"
+                f"Name: {location[1]}\n"
+                f"Difficulty: {location[2]}\n"
+                f"Location: ({location[3] / 10**6}, {location[4] / 10**6})\n"
+                f"Creator: {location[0][:6]}...\n"
+                f"Purchase Count: {location[10]}\n"
+            )
+        climb_text = "\n".join(climbs)
+        await update.message.reply_text(f"🪨 <b>Available Climbs</b> 🪨\n{climb_text}\nUse /purchaseclimb [id] to buy!", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Error in /findaclimb: {str(e)}")
+        await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
+
 async def create_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /createtournament command from user {update.effective_user.id}")
     if not API_BASE_URL:
@@ -840,6 +1360,9 @@ async def end_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not wallet_address:
             await update.message.reply_text("Use /connectwallet! 🪙")
             return
+        if wallet_address.lower() != OWNER_ADDRESS.lower():
+            await update.message.reply_text("Only the owner can end tournaments! 😅")
+            return
         tx = contract.functions.endTournament(tournament_id, winner_address).build_transaction({
             'from': wallet_address,
             'nonce': w3.eth.get_transaction_count(wallet_address),
@@ -884,493 +1407,190 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /balance: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
-async def find_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"Received /findaclimb command from user {update.effective_user.id}")
-    if not API_BASE_URL:
-        logger.error("API_BASE_URL missing, /findaclimb command disabled")
-        await update.message.reply_text("Climb discovery unavailable due to configuration issues. Try again later! 😅")
+async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received transaction hash from user {user_id}: {update.message.text}")
+    if user_id not in pending_wallets or not pending_wallets[user_id].get("awaiting_tx"):
+        logger.warning(f"No pending transaction for user {user_id}")
+        return
+    tx_hash = update.message.text.strip()
+    if not tx_hash.startswith("0x") or len(tx_hash) != 66:
+        await update.message.reply_text("Invalid transaction hash. Send a valid hash (e.g., 0x123...).")
         return
     try:
-        if not w3 or not contract:
-            await update.message.reply_text("Climb discovery unavailable due to blockchain connection issues. Try again later! 😅")
-            return
-        count = contract.functions.getClimbingLocationCount().call()
-        locations = []
-        for i in range(count):
-            loc = contract.functions.climbingLocations(i).call()
-            locations.append(
-                f"ID: {i}, Name: {escape_html(loc[1])}, Difficulty: {escape_html(loc[2])}, Location: ({loc[3]/10**6:.4f}, {loc[4]/10**6:.4f})"
-            )
-        if not locations:
-            await update.message.reply_text("No climbs yet! Create one with /buildaclimb 🪨")
+        if not w3:
+            raise Exception("Web3 not available")
+        receipt = w3.eth.get_transaction_receipt(tx_hash)
+        if receipt and receipt.status:
+            await update.message.reply_text(f"Transaction confirmed! Tx: {tx_hash} 🪙")
+            if CHAT_HANDLE and TELEGRAM_TOKEN:
+                message = f"New activity by {escape_html(update.effective_user.username or update.effective_user.first_name)} on EmpowerTours! 🧗 Tx: {escape_html(tx_hash)}"
+                await send_notification(CHAT_HANDLE, message)
+            del pending_wallets[user_id]
         else:
-            await update.message.reply_text(
-                f"Discover Climbs:\n{'\n'.join(locations)}\nCreate your own with /buildaclimb or buy one with /purchaseclimb! 🌄",
-                parse_mode="HTML"
-            )
+            await update.message.reply_text("Transaction failed or pending. Check and try again! 😅")
     except Exception as e:
-        logger.error(f"Error in /findaclimb: {str(e)}")
+        logger.error(f"Error in handle_tx_hash: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
-
-async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"Received /help command from user {update.effective_user.id}")
-    if not CHAT_HANDLE:
-        logger.error("CHAT_HANDLE missing, /help command limited")
-        await update.message.reply_text(
-            "🏔️ Commands 🧗‍♀️\n"
-            "/start - Begin\n"
-            "/tutorial - Guide\n"
-            "/connectwallet - Connect wallet\n"
-            "/createprofile - Join (1 $MON)\n"
-            "/journal [your journal entry] - Log climb\n"
-            "/comment [id] [your comment] - Comment (0.1 $MON)\n"
-            "/buildaclimb [name] [difficulty] - Create climb\n"
-            "/purchaseclimb [id] - Buy climb\n"
-            "/findaclimb - Explore climbs\n"
-            "/createtournament [fee] - Start tournament\n"
-            "/jointournament [id] - Join tournament\n"
-            "/endtournament [id] [winner] - End tournament\n"
-            "/balance - Check balance\n"
-            "/help - Menu"
-        )
-        return
-    await update.message.reply_text(
-        f"🏔️ Commands 🧗‍♀️\n"
-        "<b>/start</b> - Begin\n"
-        "<b>/tutorial</b> - Guide\n"
-        "<b>/connectwallet</b> - Connect wallet\n"
-        "<b>/createprofile</b> - Join (1 $MON)\n"
-        "<b>/journal [your journal entry]</b> - Log climb\n"
-        "<b>/comment [id] [your comment]</b> - Comment (0.1 $MON)\n"
-        "<b>/buildaclimb [name] [difficulty]</b> - Create climb\n"
-        "<b>/purchaseclimb [id]</b> - Buy climb\n"
-        "<b>/findaclimb</b> - Explore climbs\n"
-        "<b>/createtournament [fee]</b> - Start tournament\n"
-        "<b>/jointournament [id]</b> - Join tournament\n"
-        "<b>/endtournament [id] [winner]</b> - End tournament\n"
-        "<b>/balance</b> - Check balance\n"
-        "<b>/help</b> - Menu\n"
-        f"Join EmpowerTours Chat[](https://t.me/empowertourschat)! 🌄",
-        parse_mode="HTML"
-    )
 
 async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
     global last_processed_block
+    if not w3 or not contract:
+        logger.error("Web3 or contract not initialized, cannot monitor events")
+        return
     try:
-        if not w3 or not contract or not CHAT_HANDLE or not TELEGRAM_TOKEN:
-            logger.error("Event monitoring skipped due to Web3, contract, or environment variable unavailability")
-            return
-
         latest_block = w3.eth.get_block_number()
-        logger.info(f"Checking events from block {last_processed_block + 1} to {latest_block}")
-
-        # Try event filter first
-        try:
-            event_types = [
-                ("ProfileCreated", contract.events.ProfileCreated),
-                ("ClimbingLocationCreated", contract.events.ClimbingLocationCreated),
-                ("CommentAdded", contract.events.CommentAdded),
-                ("LocationPurchased", contract.events.LocationPurchased),
-                ("TournamentCreated", contract.events.TournamentCreated),
-                ("TournamentJoined", contract.events.TournamentJoined),
-                ("TournamentEnded", contract.events.TournamentEnded)
-            ]
-            for event_name, event_obj in event_types:
-                event_filter = event_obj.create_filter(from_block=last_processed_block + 1, to_block=latest_block)
-                events = event_filter.get_all_entries()
-                logger.info(f"Found {len(events)} {event_name} events via filter")
-                for event in events:
-                    await process_event(event_name, event)
-            last_processed_block = latest_block
-        except Exception as e:
-            logger.warning(f"Event filter failed: {str(e)}. Falling back to transaction receipt polling.")
-
-            # Fallback: Poll recent blocks for transactions to contract
-            for block_number in range(last_processed_block + 1, latest_block + 1):
-                try:
-                    block = w3.eth.get_block(block_number, full_transactions=True)
-                    for tx in block.transactions:
-                        if tx.get('to') and tx['to'].lower() == CONTRACT_ADDRESS.lower():
-                            receipt = w3.eth.get_transaction_receipt(tx['hash'])
-                            if receipt and receipt.status:
-                                for log in receipt.logs:
-                                    for event_name, event_obj in event_types:
-                                        try:
-                                            event = event_obj().process_log(log)
-                                            if event:
-                                                await process_event(event_name, event)
-                                        except Exception as log_e:
-                                            logger.error(f"Error processing log for {event_name}: {str(log_e)}")
-                except Exception as block_e:
-                    logger.error(f"Error processing block {block_number}: {str(block_e)}")
-            last_processed_block = latest_block
-
+        if last_processed_block == 0:
+            last_processed_block = max(0, latest_block - 100)
+        for block_number in range(last_processed_block + 1, latest_block + 1):
+            block = w3.eth.get_block(block_number, full_transactions=True)
+            for tx in block.transactions:
+                receipt = w3.eth.get_transaction_receipt(tx.hash)
+                if receipt and receipt.status:
+                    for log in receipt.logs:
+                        if log.address.lower() == CONTRACT_ADDRESS.lower():
+                            try:
+                                if log.topics[0].hex() == w3.keccak(text="ProfileCreated(address,uint256)").hex():
+                                    event = contract.events.ProfileCreated().process_log(log)
+                                    user = event.args.user
+                                    message = f"New climber joined EmpowerTours! 🧗 Address: {user[:6]}..."
+                                    await send_notification(CHAT_HANDLE, message)
+                                elif log.topics[0].hex() == w3.keccak(text="JournalEntryAdded(uint256,address,string,uint256)").hex():
+                                    event = contract.events.JournalEntryAdded().process_log(log)
+                                    author = event.args.author
+                                    entry_id = event.args.entryId
+                                    message = f"New journal entry #{entry_id} by {author[:6]}... on EmpowerTours! 📝"
+                                    await send_notification(CHAT_HANDLE, message)
+                                elif log.topics[0].hex() == w3.keccak(text="CommentAdded(uint256,address,string,uint256)").hex():
+                                    event = contract.events.CommentAdded().process_log(log)
+                                    commenter = event.args.commenter
+                                    entry_id = event.args.entryId
+                                    message = f"New comment on journal #{entry_id} by {commenter[:6]}... on EmpowerTours! 🗣️"
+                                    await send_notification(CHAT_HANDLE, message)
+                                elif log.topics[0].hex() == w3.keccak(text="ClimbingLocationCreated(uint256,address,string,uint256)").hex():
+                                    event = contract.events.ClimbingLocationCreated().process_log(log)
+                                    creator = event.args.creator
+                                    name = event.args.name
+                                    message = f"New climb '{name}' created by {creator[:6]}... on EmpowerTours! 🪨"
+                                    await send_notification(CHAT_HANDLE, message)
+                                elif log.topics[0].hex() == w3.keccak(text="LocationPurchased(uint256,address,uint256)").hex():
+                                    event = contract.events.LocationPurchased().process_log(log)
+                                    buyer = event.args.buyer
+                                    location_id = event.args.locationId
+                                    message = f"Climb #{location_id} purchased by {buyer[:6]}... on EmpowerTours! 🪙"
+                                    await send_notification(CHAT_HANDLE, message)
+                                elif log.topics[0].hex() == w3.keccak(text="TournamentCreated(uint256,uint256,uint256)").hex():
+                                    event = contract.events.TournamentCreated().process_log(log)
+                                    tournament_id = event.args.tournamentId
+                                    entry_fee = event.args.entryFee / 10**18
+                                    message = f"New tournament #{tournament_id} created with entry fee {entry_fee} $TOURS on EmpowerTours! 🏆"
+                                    await send_notification(CHAT_HANDLE, message)
+                                elif log.topics[0].hex() == w3.keccak(text="TournamentJoined(uint256,address)").hex():
+                                    event = contract.events.TournamentJoined().process_log(log)
+                                    participant = event.args.participant
+                                    tournament_id = event.args.tournamentId
+                                    message = f"Climber {participant[:6]}... joined tournament #{tournament_id} on EmpowerTours! 🏆"
+                                    await send_notification(CHAT_HANDLE, message)
+                                elif log.topics[0].hex() == w3.keccak(text="TournamentEnded(uint256,address,uint256)").hex():
+                                    event = contract.events.TournamentEnded().process_log(log)
+                                    winner = event.args.winner
+                                    tournament_id = event.args.tournamentId
+                                    pot = event.args.pot / 10**18
+                                    message = f"Tournament #{tournament_id} ended! Winner: {winner[:6]}... won {pot} $TOURS on EmpowerTours! 🏆"
+                                    await send_notification(CHAT_HANDLE, message)
+                            except Exception as e:
+                                logger.error(f"Error processing event in block {block_number}: {str(e)}")
+        last_processed_block = latest_block
     except Exception as e:
         logger.error(f"Error in monitor_events: {str(e)}")
 
-async def process_event(event_name, event):
-    tx_hash = escape_html(event["transactionHash"].hex() or "")
-    if event_name == "ProfileCreated":
-        user = event["args"]["user"] or ""
-        message = f"New climber {escape_html(user[:6])}... joined EmpowerTours! 🧗 Tx: {tx_hash}"
-    elif event_name == "ClimbingLocationCreated":
-        location_id = event["args"]["locationId"]
-        creator = event["args"]["creator"] or ""
-        name = escape_html(event["args"]["name"] or "")
-        location = contract.functions.climbingLocations(location_id).call()
-        message = (
-            f"New climb by {escape_html(creator[:6])}...! 🧗\n"
-            f"Name: {name}\n"
-            f"Location: ({int(location[3] or 0)/10**6:.4f}, {int(location[4] or 0)/10**6:.4f})\n"
-            f"Tx: {tx_hash}"
-        )
-    elif event_name == "CommentAdded":
-        entry_id = event["args"]["entryId"]
-        commenter = event["args"]["commenter"] or ""
-        message = f"New comment by {escape_html(commenter[:6])}... on entry {entry_id}! 🗣️ Tx: {tx_hash}"
-    elif event_name == "LocationPurchased":
-        location_id = event["args"]["locationId"]
-        buyer = event["args"]["buyer"] or ""
-        message = f"Climb {location_id} purchased by {escape_html(buyer[:6])}...! 🪙 Tx: {tx_hash}"
-    elif event_name == "TournamentCreated":
-        tournament_id = event["args"]["tournamentId"]
-        entry_fee = event["args"]["entryFee"] / 10**18
-        message = f"New tournament {tournament_id} created with {entry_fee:.2f} $TOURS entry fee! 🏆 Tx: {tx_hash}"
-    elif event_name == "TournamentJoined":
-        tournament_id = event["args"]["tournamentId"]
-        participant = event["args"]["participant"] or ""
-        message = f"Climber {escape_html(participant[:6])}... joined tournament {tournament_id}! 🏆 Tx: {tx_hash}"
-    elif event_name == "TournamentEnded":
-        tournament_id = event["args"]["tournamentId"]
-        winner = event["args"]["winner"] or ""
-        pot = event["args"]["pot"] / 10**18
-        message = f"Tournament {tournament_id} ended! Winner: {escape_html(winner[:6])}... Pot: {pot:.2f} $TOURS 🏆 Tx: {tx_hash}"
-    
-    logger.info(f"Preparing to send {event_name} notification: {message}")
-    await send_notification(CHAT_HANDLE, message)
-
-# API Endpoints
-@app.get("/sessions/{user_id}")
-async def get_session(user_id: str):
-    logger.info(f"Fetching session for user {user_id}")
-    session = sessions.get(user_id, {})
-    return {"wallet_address": session.get("wallet_address")}
-
-@app.post("/wallet")
-async def connect_wallet_endpoint(request: Request):
-    logger.info("Received /wallet request")
-    data = await request.json()
-    user_id = data.get("telegramUserId")
-    wallet_address = data.get("walletAddress")
-    if not user_id or not wallet_address:
-        logger.error("Missing userId or walletAddress in /wallet request")
-        raise HTTPException(status_code=400, detail="Missing userId or walletAddress")
+# Webhook endpoint for wallet connection
+@app.post("/submit_wallet")
+async def submit_wallet(request: Request):
     try:
-        bot_app = app.state.bot_application
-        await handle_wallet_address(user_id, wallet_address, bot_app)
-        logger.info(f"Wallet connected for user {user_id}: {wallet_address}")
+        data = await request.json()
+        user_id = data.get("userId")
+        wallet_address = data.get("walletAddress")
+        if not user_id or not wallet_address:
+            logger.error("Missing userId or walletAddress in /submit_wallet")
+            raise HTTPException(status_code=400, detail="Missing userId or walletAddress")
+        logger.info(f"Received wallet submission for user {user_id}: {wallet_address}")
+        if not TELEGRAM_TOKEN:
+            logger.error("TELEGRAM_TOKEN missing, cannot send wallet confirmation")
+            raise HTTPException(status_code=500, detail="Bot configuration error")
+        application = context.bot_data.get("application")
+        if not application:
+            logger.error("Application not initialized for /submit_wallet")
+            raise HTTPException(status_code=500, detail="Bot not initialized")
+        await handle_wallet_address(user_id, wallet_address, application)
         return {"status": "success"}
     except Exception as e:
-        logger.error(f"Error in /wallet: {str(e)}")
+        logger.error(f"Error in /submit_wallet: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/create_profile")
-async def create_profile_endpoint(request: Request):
-    logger.info("Received /create_profile request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    user_id = data.get("user_id")
-    username = data.get("username")
-    if not wallet_address or not user_id:
-        logger.error("Missing wallet_address or user_id in /create_profile request")
-        raise HTTPException(status_code=400, detail="Missing wallet_address or user_id")
+# Application setup
+async def main():
     try:
-        profile_fee = contract.functions.profileFee().call()
-        tx = contract.functions.createProfile().build_transaction({
-            'from': wallet_address,
-            'value': profile_fee,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 200000,
-            'gasPrice': w3.eth.gas_price
-        })
-        payment_tx = {
-            'to': OWNER_ADDRESS,
-            'value': w3.to_wei(1, 'ether'),
-            'nonce': w3.eth.get_transaction_count(wallet_address) + 1,
-            'gas': 21000,
-            'gasPrice': w3.eth.gas_price
-        }
-        logger.info(f"Profile creation transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx, "next_tx": {"tx_data": payment_tx}}
+        initialize_web3()
+        if not TELEGRAM_TOKEN:
+            logger.error("TELEGRAM_TOKEN missing, cannot start bot")
+            return
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        context.bot_data["application"] = application
+
+        # Add handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("tutorial", tutorial))
+        application.add_handler(CommandHandler("help", help))
+        application.add_handler(CommandHandler("connectwallet", connect_wallet))
+        application.add_handler(CommandHandler("createprofile", create_profile))
+        application.add_handler(CommandHandler("journal", journal_entry))
+        application.add_handler(CommandHandler("comment", add_comment))
+        application.add_handler(CommandHandler("buildaclimb", build_a_climb))
+        application.add_handler(CommandHandler("purchaseclimb", purchase_climb))
+        application.add_handler(CommandHandler("findaclimb", find_a_climb))
+        application.add_handler(CommandHandler("createtournament", create_tournament))
+        application.add_handler(CommandHandler("jointournament", join_tournament))
+        application.add_handler(CommandHandler("endtournament", end_tournament))
+        application.add_handler(CommandHandler("balance", balance))
+        application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        application.add_handler(MessageHandler(filters.LOCATION, handle_location))
+        application.add_handler(MessageHandler(filters.Regex(r'^0x[a-fA-F0-9]{64}$'), handle_tx_hash))
+
+        # Periodic event monitoring
+        application.job_queue.run_repeating(monitor_events, interval=10, first=0)
+
+        # Start bot
+        await reset_webhook()
+        await application.initialize()
+        await application.start()
+        await application.updater.start_webhook(
+            listen="0.0.0.0",
+            port=8080,
+            url_path="/webhook",
+            webhook_url=f"{API_BASE_URL}/webhook"
+        )
+        logger.info("Bot started successfully")
+
+        # Keep application running
+        while True:
+            await asyncio.sleep(3600)
     except Exception as e:
-        logger.error(f"Error in /create_profile: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in main: {str(e)}")
 
-@app.post("/journal_entry")
-async def journal_entry_endpoint(request: Request):
-    logger.info("Received /journal_entry request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    content = data.get("content")
-    user_id = data.get("user_id")
-    if not wallet_address or not content or not user_id:
-        logger.error("Missing wallet_address, content, or user_id in /journal_entry request")
-        raise HTTPException(status_code=400, detail="Missing wallet_address, content, or user_id")
-    try:
-        tx = contract.functions.addJournalEntry(content).build_transaction({
-            'from': wallet_address,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 200000,
-            'gasPrice': w3.eth.gas_price
-        })
-        logger.info(f"Journal entry transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx}
-    except Exception as e:
-        logger.error(f"Error in /journal_entry: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/add_comment")
-async def add_comment_endpoint(request: Request):
-    logger.info("Received /add_comment request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    entry_id = data.get("entry_id")
-    content = data.get("content")
-    user_id = data.get("user_id")
-    if not wallet_address or not entry_id or not content or not user_id:
-        logger.error("Missing wallet_address, entry_id, content, or user_id in /add_comment request")
-        raise HTTPException(status_code=400, detail="Missing wallet_address, entry_id, content, or user_id")
-    try:
-        comment_fee = contract.functions.commentFee().call()
-        tx = contract.functions.addComment(entry_id, content).build_transaction({
-            'from': wallet_address,
-            'value': comment_fee,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 200000,
-            'gasPrice': w3.eth.gas_price
-        })
-        logger.info(f"Comment transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx}
-    except Exception as e:
-        logger.error(f"Error in /add_comment: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/create_climbing_location")
-async def create_climbing_location_endpoint(request: Request):
-    logger.info("Received /create_climbing_location request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    name = data.get("name")
-    difficulty = data.get("difficulty")
-    latitude = data.get("latitude")
-    longitude = data.get("longitude")
-    photo_hash = data.get("photo_hash")
-    user_id = data.get("user_id")
-    if not all([wallet_address, name, difficulty, latitude, longitude, photo_hash, user_id]):
-        logger.error("Missing required fields in /create_climbing_location request")
-        raise HTTPException(status_code=400, detail="Missing required fields")
-    try:
-        tx = contract.functions.createClimbingLocation(name, difficulty, latitude, longitude, photo_hash).build_transaction({
-            'from': wallet_address,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 300000,
-            'gasPrice': w3.eth.gas_price
-        })
-        logger.info(f"Climb creation transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx}
-    except Exception as e:
-        logger.error(f"Error in /create_climbing_location: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/purchase_climb")
-async def purchase_climb_endpoint(request: Request):
-    logger.info("Received /purchase_climb request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    location_id = data.get("location_id")
-    user_id = data.get("user_id")
-    if not wallet_address or not location_id or not user_id:
-        logger.error("Missing wallet_address, location_id, or user_id in /purchase_climb request")
-        raise HTTPException(status_code=400, detail="Missing wallet_address, location_id, or user_id")
-    try:
-        tx = contract.functions.purchaseClimbingLocation(location_id).build_transaction({
-            'from': wallet_address,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 200000,
-            'gasPrice': w3.eth.gas_price
-        })
-        logger.info(f"Climb purchase transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx}
-    except Exception as e:
-        logger.error(f"Error in /purchase_climb: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/create_tournament")
-async def create_tournament_endpoint(request: Request):
-    logger.info("Received /create_tournament request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    entry_fee = data.get("entry_fee")
-    user_id = data.get("user_id")
-    if not wallet_address or not entry_fee or not user_id:
-        logger.error("Missing wallet_address, entry_fee, or user_id in /create_tournament request")
-        raise HTTPException(status_code=400, detail="Missing wallet_address, entry_fee, or user_id")
-    try:
-        tx = contract.functions.createTournament(entry_fee).build_transaction({
-            'from': wallet_address,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 200000,
-            'gasPrice': w3.eth.gas_price
-        })
-        logger.info(f"Tournament creation transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx}
-    except Exception as e:
-        logger.error(f"Error in /create_tournament: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/join_tournament")
-async def join_tournament_endpoint(request: Request):
-    logger.info("Received /join_tournament request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    tournament_id = data.get("tournament_id")
-    user_id = data.get("user_id")
-    if not wallet_address or not tournament_id or not user_id:
-        logger.error("Missing wallet_address, tournament_id, or user_id in /join_tournament request")
-        raise HTTPException(status_code=400, detail="Missing wallet_address, tournament_id, or user_id")
-    try:
-        tx = contract.functions.joinTournament(tournament_id).build_transaction({
-            'from': wallet_address,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 200000,
-            'gasPrice': w3.eth.gas_price
-        })
-        logger.info(f"Tournament join transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx}
-    except Exception as e:
-        logger.error(f"Error in /join_tournament: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/end_tournament")
-async def end_tournament_endpoint(request: Request):
-    logger.info("Received /end_tournament request")
-    data = await request.json()
-    wallet_address = data.get("wallet_address")
-    tournament_id = data.get("tournament_id")
-    winner_address = data.get("winner_address")
-    user_id = data.get("user_id")
-    if not wallet_address or not tournament_id or not winner_address or not user_id:
-        logger.error("Missing wallet_address, tournament_id, winner_address, or user_id in /end_tournament request")
-        raise HTTPException(status_code=400, detail="Missing wallet_address, tournament_id, winner_address, or user_id")
-    try:
-        tx = contract.functions.endTournament(tournament_id, winner_address).build_transaction({
-            'from': wallet_address,
-            'nonce': w3.eth.get_transaction_count(wallet_address),
-            'gas': 200000,
-            'gasPrice': w3.eth.gas_price
-        })
-        logger.info(f"Tournament end transaction prepared for user {user_id}")
-        return {"status": "success", "tx_data": tx}
-    except Exception as e:
-        logger.error(f"Error in /end_tournament: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Webhook Endpoint
-@app.post("/webhook")
-async def webhook(request: Request):
-    logger.info("Received webhook request")
-    try:
-        update = Update.de_json(await request.json(), app.state.bot_application.bot)
-        if update:
-            logger.info(f"Processing update: {update.update_id}")
-            await app.state.bot_application.process_update(update)
-            logger.info(f"Update {update.update_id} processed successfully")
-            return {"status": "ok"}
-        else:
-            logger.warning("Invalid update received")
-            raise HTTPException(status_code=400, detail="Invalid update")
-    except Exception as e:
-        logger.error(f"Error in webhook: {str(e)}")
-        global webhook_failed
-        webhook_failed = True
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Initialize Telegram Bot
-async def init_bot():
-    try:
-        logger.info("Initializing Telegram bot...")
-        bot_app = Application.builder().token(TELEGRAM_TOKEN or "").build()
-        bot_app.add_handler(CommandHandler("start",10, start))
-        bot_app.add_handler(CommandHandler("tutorial", tutorial))
-        bot_app.add_handler(CommandHandler("connectwallet", connect_wallet))
-        bot_app.add_handler(CommandHandler("createprofile", create_profile))
-        bot_app.add_handler(CommandHandler("journal", journal_entry))
-        bot_app.add_handler(CommandHandler("comment", add_comment))
-        bot_app.add_handler(CommandHandler("buildaclimb", build_a_climb))
-        bot_app.add_handler(CommandHandler("purchaseclimb", purchase_climb))
-        bot_app.add_handler(CommandHandler("findaclimb", find_a_climb))
-        bot_app.add_handler(CommandHandler("createtournament", create_tournament))
-        bot_app.add_handler(CommandHandler("jointournament", join_tournament))
-        bot_app.add_handler(CommandHandler("endtournament", end_tournament))
-        bot_app.add_handler(CommandHandler("balance", balance))
-        bot_app.add_handler(CommandHandler("help", help))
-        bot_app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        bot_app.add_handler(MessageHandler(filters.LOCATION, handle_location))
-        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_tx_hash))
-        bot_app.job_queue.run_repeating(monitor_events, interval=30)
-        app.state.bot_application = bot_app
-        await bot_app.initialize()
-        await bot_app.start()
-        logger.info("Telegram bot initialized")
-        if webhook_failed:
-            logger.warning("Webhook failed, starting polling as fallback")
-            await bot_app.updater.start_polling(drop_pending_updates=True, poll_interval=1.0, timeout=10)
-    except Exception as e:
-        logger.error(f"Error initializing bot: {str(e)}")
-        raise
-
-# Startup and Shutdown
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting application...")
-    initialize_web3()
-    await init_bot()
-    if TELEGRAM_TOKEN and API_BASE_URL:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
-                json={"drop_pending_updates": True}
-            ) as response:
-                logger.info(f"Webhook cleared: {await response.json()}")
-            async with session.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-                json={"url": f"{API_BASE_URL}/webhook"}
-            ) as response:
-                logger.info(f"Webhook set: {await response.json()}")
-    else:
-        logger.error("TELEGRAM_TOKEN or API_BASE_URL missing, webhook not set")
-        global webhook_failed
-        webhook_failed = True
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Shutting down application...")
-    if hasattr(app.state, "bot_application"):
-        await app.state.bot_application.updater.stop()
-        await app.state.bot_application.stop()
-        await app.state.bot_application.shutdown()
-        logger.info("Telegram bot shutdown complete")
-
-# Signal Handling
+# Signal handler for graceful shutdown
 def handle_shutdown(signum, frame):
-    logger.info("Received shutdown signal, stopping application...")
-    if hasattr(app.state, "bot_application"):
-        asyncio.create_task(app.state.bot_application.updater.stop())
-        asyncio.create_task(app.state.bot_application.stop())
-        asyncio.create_task(app.state.bot_application.shutdown())
+    logger.info("Received shutdown signal")
+    raise SystemExit
 
+# Register signal handlers
 signal.signal(signal.SIGINT, handle_shutdown)
 signal.signal(signal.SIGTERM, handle_shutdown)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8080)
+    except SystemExit:
+        logger.info("Shutting down bot")
+    except Exception as e:
+        logger.error(f"Error running Uvicorn: {str(e)}")
