@@ -1,5 +1,3 @@
-0x627A122dA847FaF88Ddbca796A4BC55bc7d99dC1
-
 import logging
 import os
 import signal
