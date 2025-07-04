@@ -426,41 +426,52 @@ def escape_html(text):
     return html.escape(str(text))
 
 async def send_notification(chat_id, message):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": message,
-                "parse_mode": "HTML"
-            }
-        ) as response:
-            response_data = await response.json()
-            if response_data.get("ok"):
-                logger.info(f"Sent notification to chat {chat_id}: {response_data}")
-            else:
-                logger.error(f"Failed to send notification to chat {chat_id}: {response_data}")
-            return response_data
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+        try:
+            async with session.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": message,
+                    "parse_mode": "HTML"
+                }
+            ) as response:
+                response_data = await response.json()
+                if response_data.get("ok"):
+                    logger.info(f"Sent notification to chat {chat_id}: {response_data}")
+                else:
+                    logger.error(f"Failed to send notification to chat {chat_id}: {response_data}")
+                return response_data
+        except Exception as e:
+            logger.error(f"Error in send_notification to chat {chat_id}: {str(e)}")
+            return {"ok": False, "error": str(e)}
 
 async def check_webhook():
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getWebhookInfo") as response:
-            data = await response.json()
-            logger.info(f"Webhook info: {data}")
-            return data.get("ok") and data.get("result", {}).get("url") == f"{API_BASE_URL}/webhook"
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+        try:
+            async with session.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getWebhookInfo") as response:
+                data = await response.json()
+                logger.info(f"Webhook info: {data}")
+                return data.get("ok") and data.get("result", {}).get("url") == f"{API_BASE_URL}/webhook"
+        except Exception as e:
+            logger.error(f"Error checking webhook: {str(e)}")
+            return False
 
 async def reset_webhook():
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
-            json={"drop_pending_updates": True}
-        ) as response:
-            logger.info(f"Webhook cleared: {await response.json()}")
-        async with session.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-            json={"url": f"{API_BASE_URL}/webhook", "drop_pending_updates": True}
-        ) as response:
-            logger.info(f"Webhook set: {await response.json()}")
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+        try:
+            async with session.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
+                json={"drop_pending_updates": True}
+            ) as response:
+                logger.info(f"Webhook cleared: {await response.json()}")
+            async with session.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
+                json={"url": f"{API_BASE_URL}/webhook", "drop_pending_updates": True}
+            ) as response:
+                logger.info(f"Webhook set: {await response.json()}")
+        except Exception as e:
+            logger.error(f"Error resetting webhook: {str(e)}")
 
 # Telegram Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -479,12 +490,18 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not CHAT_HANDLE or not MONAD_RPC_URL:
             logger.error("CHAT_HANDLE or MONAD_RPC_URL missing, /tutorial command limited")
-            await update.message.reply_text("Tutorial unavailable due to configuration issues. Try /help! 😅")
+            await update.message.reply_text("Tutorial unavailable due to missing configuration (CHAT_HANDLE or MONAD_RPC_URL). Try /help! 😅")
             return
+        logger.info("Checking webhook for /tutorial")
         webhook_ok = await check_webhook()
         if not webhook_ok:
             logger.warning("Webhook not set correctly, attempting to reset")
-            await reset_webhook()
+            try:
+                await asyncio.wait_for(reset_webhook(), timeout=10)
+                logger.info("Webhook reset completed")
+            except asyncio.TimeoutError:
+                logger.error("Webhook reset timed out")
+                await update.message.reply_text("Webhook setup timed out. Tutorial available without webhook. 😅")
         tutorial_text = (
             "🌟 <b>Tutorial</b> 🌟\n"
             "1️⃣ <b>Wallet</b>:\n"
@@ -508,10 +525,12 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "- /help\n"
             "Join EmpowerTours Chat[](https://t.me/empowertourschat)! Try /connectwallet! 🪨"
         )
+        logger.info(f"Sending tutorial response to user {update.effective_user.id}")
         await update.message.reply_text(tutorial_text, parse_mode="HTML")
+        logger.info(f"Tutorial response sent successfully to user {update.effective_user.id}")
     except Exception as e:
-        logger.error(f"Error in /tutorial: {str(e)}")
-        await update.message.reply_text(f"Error in tutorial: {str(e)}. Try again! 😅")
+        logger.error(f"Error in /tutorial for user {update.effective_user.id}: {str(e)}")
+        await update.message.reply_text(f"Error in tutorial: {str(e)}. Try again or use /help! 😅")
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /help command from user {update.effective_user.id}")
