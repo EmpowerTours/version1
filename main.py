@@ -489,8 +489,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /start command from user {update.effective_user.id}")
     try:
         await update.message.reply_text(
-            "Welcome to EmpowerTours, your rock climbing adventure hub! 🌄\nNew here? Start with /tutorial to set up your wallet and profile.\nReady to climb? Join our community at EmpowerTours Chat[](https://t.me/empowertourschat)! 🪨",
-            parse_mode="HTML"
+            "Welcome to EmpowerTours, your rock climbing adventure hub! 🌄\nNew here? Start with /tutorial to set up your wallet and profile.\nReady to climb? Join our community at EmpowerTours Chat https://t.me/empowertourschat 🪨"
         )
     except Exception as e:
         logger.error(f"Error in /start: {str(e)}")
@@ -514,16 +513,16 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error("Webhook reset timed out")
                 await update.message.reply_text(
                     "Webhook setup timed out, but here's the tutorial! 😅\n"
-                    "🌟 <b>Tutorial</b> 🌟\n"
-                    "1️⃣ <b>Wallet</b>:\n"
-                    "- Get MetaMask/Phantom/Gnosis Safe387Safe.\n"
-                    f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
-                    "- Get $MON: <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>\n"
-                    "2️⃣ <b>Connect</b>:\n"
+                    "🌟 Tutorial 🌟\n"
+                    "1️⃣ Wallet:\n"
+                    "- Get MetaMask/Phantom/Gnosis Safe.\n"
+                    f"- Add Monad testnet (RPC: {MONAD_RPC_URL}, ID: 10143).\n"
+                    "- Get $MON: https://testnet.monad.xyz/faucet\n"
+                    "2️⃣ Connect:\n"
                     "- Use /connectwallet to connect via MetaMask/WalletConnect\n"
-                    "3️⃣ <b>Profile</b>:\n"
+                    "3️⃣ Profile:\n"
                     "- /createprofile (1 $MON)\n"
-                    "4️⃣ <b>Explore</b>:\n"
+                    "4️⃣ Explore:\n"
                     "- /journal [your journal entry]\n"
                     "- /comment [id] [your comment]\n"
                     "- /buildaclimb [name] [difficulty]\n"
@@ -534,21 +533,20 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "- /endtournament [id] [winner]\n"
                     "- /balance\n"
                     "- /help\n"
-                    "Join EmpowerTours Chat[](https://t.me/empowertourschat)! Try /connectwallet! 🪨",
-                    parse_mode="HTML"
+                    "Join EmpowerTours Chat https://t.me/empowertourschat! Try /connectwallet! 🪨"
                 )
                 return
         tutorial_text = (
-            "🌟 <b>Tutorial</b> 🌟\n"
-            "1️⃣ <b>Wallet</b>:\n"
+            "🌟 Tutorial 🌟\n"
+            "1️⃣ Wallet:\n"
             "- Get MetaMask/Phantom/Gnosis Safe.\n"
-            f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
-            "- Get $MON: <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>\n"
-            "2️⃣ <b>Connect</b>:\n"
+            f"- Add Monad testnet (RPC: {MONAD_RPC_URL}, ID: 10143).\n"
+            "- Get $MON: https://testnet.monad.xyz/faucet\n"
+            "2️⃣ Connect:\n"
             "- Use /connectwallet to connect via MetaMask/WalletConnect\n"
-            "3️⃣ <b>Profile</b>:\n"
+            "3️⃣ Profile:\n"
             "- /createprofile (1 $MON)\n"
-            "4️⃣ <b>Explore</b>:\n"
+            "4️⃣ Explore:\n"
             "- /journal [your journal entry]\n"
             "- /comment [id] [your comment]\n"
             "- /buildaclimb [name] [difficulty]\n"
@@ -559,10 +557,10 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "- /endtournament [id] [winner]\n"
             "- /balance\n"
             "- /help\n"
-            "Join EmpowerTours Chat[](https://t.me/empowertourschat)! Try /connectwallet! 🪨"
+            "Join EmpowerTours Chat https://t.me/empowertourschat! Try /connectwallet! 🪨"
         )
         logger.info(f"Sending tutorial response to user {update.effective_user.id}")
-        await update.message.reply_text(tutorial_text, parse_mode="HTML")
+        await update.message.reply_text(tutorial_text)
         logger.info(f"Tutorial response sent successfully to user {update.effective_user.id}")
     except Exception as e:
         logger.error(f"Error in /tutorial for user {update.effective_user.id}: {str(e)}")
@@ -572,7 +570,7 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /help command from user {update.effective_user.id}")
     try:
         help_text = (
-            "🧗 <b>EmpowerTours Commands</b> 🧗\n"
+            "🧗 EmpowerTours Commands 🧗\n"
             "/start - Welcome message\n"
             "/tutorial - Setup guide\n"
             "/connectwallet - Connect your wallet\n"
@@ -586,9 +584,9 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/jointournament [id] - Join a tournament\n"
             "/endtournament [id] [winner] - End a tournament\n"
             "/balance - Check wallet balance\n"
-            "Join EmpowerTours Chat[](https://t.me/empowertourschat)! 🪨"
+            "Join EmpowerTours Chat https://t.me/empowertourschat! 🪨"
         )
-        await update.message.reply_text(help_text, parse_mode="HTML")
+        await update.message.reply_text(help_text)
     except Exception as e:
         logger.error(f"Error in /help: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
@@ -608,8 +606,7 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Click the button to connect your wallet via MetaMask or WalletConnect:",
-            reply_markup=reply_markup,
-            parse_mode="HTML"
+            reply_markup=reply_markup
         )
         pending_wallets[user_id] = {"awaiting_wallet": True}
     except Exception as e:
@@ -890,7 +887,7 @@ async def find_a_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Purchase Count: {location[10]}\n"
             )
         climb_text = "\n".join(climbs)
-        await update.message.reply_text(f"🪨 <b>Available Climbs</b> 🪨\n{climb_text}\nUse /purchaseclimb [id] to buy!", parse_mode="HTML")
+        await update.message.reply_text(f"🪨 Available Climbs 🪨\n{climb_text}\nUse /purchaseclimb [id] to buy!")
     except Exception as e:
         logger.error(f"Error in /findaclimb: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
@@ -1023,8 +1020,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         balance_mon = w3.from_wei(balance_wei, 'ether')
         tours_balance = tours_contract.functions.balanceOf(wallet_address).call() / 10**18
         await update.message.reply_text(
-            f"💰 Wallet Balance:\n- {balance_mon} $MON\n- {tours_balance:.2f} $TOURS\nAddress: {wallet_address}\nTop up $MON at <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>! 🪙",
-            parse_mode="HTML"
+            f"💰 Wallet Balance:\n- {balance_mon} $MON\n- {tours_balance:.2f} $TOURS\nAddress: {wallet_address}\nTop up $MON at https://testnet.monad.xyz/faucet! 🪙"
         )
     except Exception as e:
         logger.error(f"Error in /balance: {str(e)}")
@@ -1130,6 +1126,7 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
 # Webhook endpoint for wallet connection
 @app.post("/submit_wallet")
 async def submit_wallet(request: Request):
+    global application
     try:
         data = await request.json()
         user_id = data.get("userId")
@@ -1176,8 +1173,7 @@ async def main():
             logger.error("TELEGRAM_TOKEN missing, cannot start bot")
             return
         application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-        # Add handlers
+        logger.info("Registering command handlers")
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("tutorial", tutorial))
         application.add_handler(CommandHandler("help", help))
@@ -1195,11 +1191,13 @@ async def main():
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(filters.LOCATION, handle_location))
         application.add_handler(MessageHandler(filters.Regex(r'^0x[a-fA-F0-9]{64}$'), handle_tx_hash))
+        logger.info("Command handlers registered successfully")
 
         # Periodic event monitoring
         application.job_queue.run_repeating(monitor_events, interval=10, first=0)
 
-        # Start bot
+        # Force webhook reset
+        logger.info("Forcing webhook reset on startup")
         await reset_webhook()
         await application.initialize()
         await application.start()
