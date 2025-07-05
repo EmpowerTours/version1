@@ -495,6 +495,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /start: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
 
+async def testlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received /testlink command from user {update.effective_user.id}")
+    try:
+        await update.message.reply_text(
+            "Testing link: https://t.me/empowertourschat"
+        )
+    except Exception as e:
+        logger.error(f"Error in /testlink: {str(e)}")
+        await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
+
 async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /tutorial command from user {update.effective_user.id}")
     try:
@@ -502,40 +512,6 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error("CHAT_HANDLE or MONAD_RPC_URL missing, /tutorial command limited")
             await update.message.reply_text("Tutorial unavailable due to missing configuration (CHAT_HANDLE or MONAD_RPC_URL). Try /help! 😅")
             return
-        logger.info("Checking webhook for /tutorial")
-        webhook_ok = await check_webhook()
-        if not webhook_ok:
-            logger.warning("Webhook not set correctly, attempting to reset")
-            try:
-                await asyncio.wait_for(reset_webhook(), timeout=5)
-                logger.info("Webhook reset completed")
-            except asyncio.TimeoutError:
-                logger.error("Webhook reset timed out")
-                await update.message.reply_text(
-                    "Webhook setup timed out, but here's the tutorial! 😅\n"
-                    "🌟 Tutorial 🌟\n"
-                    "1️⃣ Wallet:\n"
-                    "- Get MetaMask/Phantom/Gnosis Safe.\n"
-                    f"- Add Monad testnet (RPC: {MONAD_RPC_URL}, ID: 10143).\n"
-                    "- Get $MON: https://testnet.monad.xyz/faucet\n"
-                    "2️⃣ Connect:\n"
-                    "- Use /connectwallet to connect via MetaMask/WalletConnect\n"
-                    "3️⃣ Profile:\n"
-                    "- /createprofile (1 $MON)\n"
-                    "4️⃣ Explore:\n"
-                    "- /journal [your journal entry]\n"
-                    "- /comment [id] [your comment]\n"
-                    "- /buildaclimb [name] [difficulty]\n"
-                    "- /purchaseclimb [id]\n"
-                    "- /findaclimb\n"
-                    "- /createtournament [fee]\n"
-                    "- /jointournament [id]\n"
-                    "- /endtournament [id] [winner]\n"
-                    "- /balance\n"
-                    "- /help\n"
-                    "Join EmpowerTours Chat https://t.me/empowertourschat! Try /connectwallet! 🪨"
-                )
-                return
         tutorial_text = (
             "🌟 Tutorial 🌟\n"
             "1️⃣ Wallet:\n"
@@ -590,6 +566,10 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error in /help: {str(e)}")
         await update.message.reply_text(f"Error: {str(e)}. Try again! 😅")
+
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received command: {update.message.text} from user {update.effective_user.id}")
+    await update.message.reply_text(f"Debug: Received command '{update.message.text}'. Please use a valid command like /start or /tutorial.")
 
 async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /connectwallet command from user {update.effective_user.id}")
@@ -1175,6 +1155,7 @@ async def main():
         application = Application.builder().token(TELEGRAM_TOKEN).build()
         logger.info("Registering command handlers")
         application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("testlink", testlink))
         application.add_handler(CommandHandler("tutorial", tutorial))
         application.add_handler(CommandHandler("help", help))
         application.add_handler(CommandHandler("connectwallet", connect_wallet))
@@ -1191,6 +1172,7 @@ async def main():
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(filters.LOCATION, handle_location))
         application.add_handler(MessageHandler(filters.Regex(r'^0x[a-fA-F0-9]{64}$'), handle_tx_hash))
+        application.add_handler(MessageHandler(filters.COMMAND, debug_command))  # Debug all commands
         logger.info("Command handlers registered successfully")
 
         # Periodic event monitoring
