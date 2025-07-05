@@ -452,7 +452,7 @@ async def check_webhook():
             async with session.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getWebhookInfo") as response:
                 data = await response.json()
                 logger.info(f"Webhook info: {data}")
-                return data.get("ok") and data.get("result", {}).get("url") == f"{API_BASE_URL}/webhook"
+                return data.get("ok") and data.get("result", {}).get("url") == f"{API_BASE_URL.rstrip('/')}/webhook"
         except Exception as e:
             logger.error(f"Error checking webhook: {str(e)}")
             return False
@@ -460,16 +460,24 @@ async def check_webhook():
 async def reset_webhook():
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
         try:
+            logger.info("Attempting to delete webhook")
             async with session.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
                 json={"drop_pending_updates": True}
             ) as response:
-                logger.info(f"Webhook cleared: {await response.json()}")
+                delete_data = await response.json()
+                logger.info(f"Webhook cleared: {delete_data}")
+                if not delete_data.get("ok"):
+                    logger.error(f"Failed to delete webhook: {delete_data}")
+            logger.info(f"Setting webhook to {API_BASE_URL.rstrip('/')}/webhook")
             async with session.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setWebhook",
-                json={"url": f"{API_BASE_URL}/webhook", "drop_pending_updates": True}
+                json={"url": f"{API_BASE_URL.rstrip('/')}/webhook", "drop_pending_updates": True}
             ) as response:
-                logger.info(f"Webhook set: {await response.json()}")
+                set_data = await response.json()
+                logger.info(f"Webhook set: {set_data}")
+                if not set_data.get("ok"):
+                    logger.error(f"Failed to set webhook: {set_data}")
         except Exception as e:
             logger.error(f"Error resetting webhook: {str(e)}")
 
@@ -607,7 +615,7 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_wallet_address(user_id: str, wallet_address: str, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Handling wallet address for user {user_id}: {wallet_address}")
-    if user_id not in pending_wallets or not pending_terminal_wallets[user_id].get("awaiting_wallet"):
+    if user_id not in pending_wallets or not pending_wallets[user_id].get("awaiting_wallet"):
         logger.warning(f"No pending wallet connection for user {user_id}")
         return
     if not API_BASE_URL:
@@ -1140,6 +1148,22 @@ async def submit_wallet(request: Request):
         logger.error(f"Error in /submit_wallet: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Webhook endpoint for Telegram updates
+@app.post("/webhook")
+async def webhook(request: Request):
+    try:
+        update = await request.json()
+        logger.info(f"Received webhook update: {update}")
+        application = context.bot_data.get("application")
+        if not application:
+            logger.error("Application not initialized for webhook")
+            raise HTTPException(status_code=500, detail="Bot not initialized")
+        await application.update_queue.put(Update.de_json(update, application.bot))
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error in webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Application setup
 async def main():
     try:
@@ -1180,7 +1204,7 @@ async def main():
             listen="0.0.0.0",
             port=8080,
             url_path="/webhook",
-            webhook_url=f"{API_BASE_URL}/webhook"
+            webhook_url=f"{API_BASE_URL.rstrip('/')}/webhook"
         )
         logger.info("Bot started successfully")
 
