@@ -23,6 +23,9 @@ app = FastAPI()
 # Mount static files
 app.mount("/public", StaticFiles(directory="public"), name="public")
 
+# Global application variable
+application = None
+
 # Load environment variables
 load_dotenv()
 
@@ -513,7 +516,7 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Webhook setup timed out, but here's the tutorial! 😅\n"
                     "🌟 <b>Tutorial</b> 🌟\n"
                     "1️⃣ <b>Wallet</b>:\n"
-                    "- Get MetaMask/Phantom/Gnosis Safe.\n"
+                    "- Get MetaMask/Phantom/Gnosis Safe387Safe.\n"
                     f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
                     "- Get $MON: <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>\n"
                     "2️⃣ <b>Connect</b>:\n"
@@ -1138,7 +1141,6 @@ async def submit_wallet(request: Request):
         if not TELEGRAM_TOKEN:
             logger.error("TELEGRAM_TOKEN missing, cannot send wallet confirmation")
             raise HTTPException(status_code=500, detail="Bot configuration error")
-        application = context.bot_data.get("application")
         if not application:
             logger.error("Application not initialized for /submit_wallet")
             raise HTTPException(status_code=500, detail="Bot not initialized")
@@ -1151,14 +1153,15 @@ async def submit_wallet(request: Request):
 # Webhook endpoint for Telegram updates
 @app.post("/webhook")
 async def webhook(request: Request):
+    global application
     try:
         update = await request.json()
         logger.info(f"Received webhook update: {update}")
-        application = context.bot_data.get("application")
         if not application:
             logger.error("Application not initialized for webhook")
             raise HTTPException(status_code=500, detail="Bot not initialized")
         await application.update_queue.put(Update.de_json(update, application.bot))
+        logger.info("Webhook update processed successfully")
         return {"status": "success"}
     except Exception as e:
         logger.error(f"Error in webhook: {str(e)}")
@@ -1166,13 +1169,13 @@ async def webhook(request: Request):
 
 # Application setup
 async def main():
+    global application
     try:
         initialize_web3()
         if not TELEGRAM_TOKEN:
             logger.error("TELEGRAM_TOKEN missing, cannot start bot")
             return
         application = Application.builder().token(TELEGRAM_TOKEN).build()
-        context.bot_data["application"] = application
 
         # Add handlers
         application.add_handler(CommandHandler("start", start))
