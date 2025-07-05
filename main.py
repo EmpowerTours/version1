@@ -426,7 +426,7 @@ def escape_html(text):
     return html.escape(str(text))
 
 async def send_notification(chat_id, message):
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
         try:
             async with session.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -447,7 +447,7 @@ async def send_notification(chat_id, message):
             return {"ok": False, "error": str(e)}
 
 async def check_webhook():
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
         try:
             async with session.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getWebhookInfo") as response:
                 data = await response.json()
@@ -458,7 +458,7 @@ async def check_webhook():
             return False
 
 async def reset_webhook():
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
         try:
             async with session.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
@@ -497,11 +497,36 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not webhook_ok:
             logger.warning("Webhook not set correctly, attempting to reset")
             try:
-                await asyncio.wait_for(reset_webhook(), timeout=10)
+                await asyncio.wait_for(reset_webhook(), timeout=5)
                 logger.info("Webhook reset completed")
             except asyncio.TimeoutError:
                 logger.error("Webhook reset timed out")
-                await update.message.reply_text("Webhook setup timed out. Tutorial available without webhook. 😅")
+                await update.message.reply_text(
+                    "Webhook setup timed out, but here's the tutorial! 😅\n"
+                    "🌟 <b>Tutorial</b> 🌟\n"
+                    "1️⃣ <b>Wallet</b>:\n"
+                    "- Get MetaMask/Phantom/Gnosis Safe.\n"
+                    f"- Add Monad testnet (RPC: {escape_html(MONAD_RPC_URL)}, ID: 10143).\n"
+                    "- Get $MON: <a href=\"https://testnet.monad.xyz/faucet\">Faucet</a>\n"
+                    "2️⃣ <b>Connect</b>:\n"
+                    "- Use /connectwallet to connect via MetaMask/WalletConnect\n"
+                    "3️⃣ <b>Profile</b>:\n"
+                    "- /createprofile (1 $MON)\n"
+                    "4️⃣ <b>Explore</b>:\n"
+                    "- /journal [your journal entry]\n"
+                    "- /comment [id] [your comment]\n"
+                    "- /buildaclimb [name] [difficulty]\n"
+                    "- /purchaseclimb [id]\n"
+                    "- /findaclimb\n"
+                    "- /createtournament [fee]\n"
+                    "- /jointournament [id]\n"
+                    "- /endtournament [id] [winner]\n"
+                    "- /balance\n"
+                    "- /help\n"
+                    "Join EmpowerTours Chat[](https://t.me/empowertourschat)! Try /connectwallet! 🪨",
+                    parse_mode="HTML"
+                )
+                return
         tutorial_text = (
             "🌟 <b>Tutorial</b> 🌟\n"
             "1️⃣ <b>Wallet</b>:\n"
@@ -582,7 +607,7 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_wallet_address(user_id: str, wallet_address: str, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Handling wallet address for user {user_id}: {wallet_address}")
-    if user_id not in pending_wallets or not pending_wallets[user_id].get("awaiting_wallet"):
+    if user_id not in pending_wallets or not pending_terminal_wallets[user_id].get("awaiting_wallet"):
         logger.warning(f"No pending wallet connection for user {user_id}")
         return
     if not API_BASE_URL:
