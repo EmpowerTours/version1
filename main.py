@@ -1161,9 +1161,9 @@ async def tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<b>Tutorial</b>\n"
             "1. Wallet:\n"
             "- Get MetaMask, Phantom, or Gnosis Safe.\n"
-            "- Add Monad testnet (RPC: https://testnet-rpc.monad.xyz, ID: 10143).\n"
+            "- Add Monad mainnet (Chain ID: 143) to your wallet.\n"
             "- If you see a chain ID mismatch (e.g., 10159), go to MetaMask Settings > Networks, remove all Monad Testnet entries, and reconnect.\n"
-            "- Get $MON: https://testnet.monad.xyz/faucet\n\n"
+            "- Get $MON: a DEX or bridge\n\n"
             "2. Connect:\n"
             "- Use /connectwallet to connect via MetaMask or WalletConnect\n\n"
             "3. Profile:\n"
@@ -1206,7 +1206,7 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<b>EmpowerTours Commands</b>\n"
             "/start - Welcome message\n\n"
             "/tutorial - Setup guide\n\n"
-            "/connectwallet - Connect your wallet (use chain ID 10143; remove incorrect Monad Testnet entries from MetaMask if needed)\n\n"
+            "/connectwallet - Connect your wallet (Monad mainnet, Chain ID 143)\n\n"
             "/createprofile - Create profile (1 $MON, receive 1 $TOURS)\n\n"
             "/buyTours amount - Buy $TOURS tokens with $MON (e.g., /buyTours 10 to buy 10 $TOURS)\n\n"
             "/sendTours recipient amount - Send $TOURS to another wallet (e.g., /sendTours 0x123...456 10 to send 10 $TOURS)\n\n"
@@ -1340,7 +1340,7 @@ async def buy_tours(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Verify Web3 connection
         is_connected = await w3.is_connected()
         if not is_connected:
-            logger.error("Web3 not connected to Monad testnet")
+            logger.error("Web3 not connected to Monad")
             await update.message.reply_text("Blockchain connection failed. Try again later or contact support at <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>. 😅", parse_mode="HTML")
             logger.info(f"/buyTours failed due to Web3 connection, took {time.time() - start_time:.2f} seconds")
             return
@@ -1413,7 +1413,7 @@ async def buy_tours(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"$MON balance for {checksum_address}: {mon_balance / 10**18} $MON")
             if mon_balance < mon_required + (300000 * await w3.eth.gas_price):
                 await update.message.reply_text(
-                    f"Insufficient $MON balance. You have {mon_balance / 10**18} $MON, need {mon_required / 10**18} $MON plus gas (~0.015 $MON). Top up at https://testnet.monad.xyz/faucet. 😅"
+                    f"Insufficient $MON balance. You have {mon_balance / 10**18} $MON, need {mon_required / 10**18} $MON plus gas (~0.015 $MON). Top up at a DEX or bridge. 😅"
                 )
                 logger.info(f"/buyTours failed due to insufficient $MON, took {time.time() - start_time:.2f} seconds")
                 return
@@ -1455,7 +1455,7 @@ async def buy_tours(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             elif "InsufficientMonSent" in revert_reason:
                 await update.message.reply_text(
-                    f"Insufficient $MON for purchase. Need {mon_required / 10**18} $MON for {args[0]} $TOURS. Top up at https://testnet.monad.xyz/faucet. 😅"
+                    f"Insufficient $MON for purchase. Need {mon_required / 10**18} $MON for {args[0]} $TOURS. Top up at a DEX or bridge. 😅"
                 )
                 logger.info(f"/buyTours failed due to insufficient $MON, took {time.time() - start_time:.2f} seconds")
                 return
@@ -1541,7 +1541,7 @@ async def send_tours(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Verify Web3 connection
         is_connected = await w3.is_connected()
         if not is_connected:
-            logger.error("Web3 not connected to Monad testnet")
+            logger.error("Web3 not connected to Monad")
             await update.message.reply_text("Blockchain connection failed. Try again later or contact support at <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>. 😅", parse_mode="HTML")
             logger.info(f"/sendTours failed due to Web3 connection, took {time.time() - start_time:.2f} seconds")
             return
@@ -1635,7 +1635,7 @@ async def create_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Verify Web3 connection
         is_connected = await w3.is_connected()
         if not is_connected:
-            logger.error("Web3 not connected to Monad testnet")
+            logger.error("Web3 not connected to Monad")
             await update.message.reply_text("Blockchain connection failed. Try again later or contact support at <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>. 😅", parse_mode="HTML")
             logger.info(f"/createprofile failed due to Web3 connection, took {time.time() - start_time:.2f} seconds")
             return
@@ -1751,7 +1751,7 @@ async def create_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"$MON balance for {checksum_address}: {mon_balance / 10**18} $MON")
             if mon_balance < profile_fee + (300000 * await w3.eth.gas_price):
                 await update.message.reply_text(
-                    f"Insufficient $MON balance. You have {mon_balance / 10**18} $MON, need {profile_fee / 10**18} $MON plus gas (~0.015 $MON). Top up at https://testnet.monad.xyz/faucet. 😅"
+                    f"Insufficient $MON balance. You have {mon_balance / 10**18} $MON, need {profile_fee / 10**18} $MON plus gas (~0.015 $MON). Top up at a DEX or bridge. 😅"
                 )
                 logger.info(f"/createprofile failed due to insufficient $MON, took {time.time() - start_time:.2f} seconds")
                 return
@@ -2125,7 +2125,7 @@ async def buildaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Verify Web3 connection
         is_connected = await w3.is_connected()
         if not is_connected:
-            logger.error("Web3 not connected to Monad testnet")
+            logger.error("Web3 not connected to Monad")
             await update.message.reply_text("Blockchain connection failed. Try again later or contact support at <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>. 😅", parse_mode="HTML")
             logger.info(f"/buildaclimb failed due to Web3 connection, took {time.time() - start_time:.2f} seconds")
             return
@@ -2293,7 +2293,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if allowance < journal_cost:
                     nonce = await w3.eth.get_transaction_count(checksum_address)
                     approve_tx = await tours_contract.functions.approve(contract.address, journal_cost).build_transaction({
-                        'chainId': 10143,
+                        'chainId': 143,
                         'from': checksum_address,
                         'nonce': nonce,
                         'gas': 100000,
@@ -2332,7 +2332,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 nonce = await w3.eth.get_transaction_count(checksum_address)
                 tx = await contract.functions.addJournalEntryWithDetails(content_hash, location_str, difficulty, is_shared, cast_hash).build_transaction({
-                    'chainId': 10143,
+                    'chainId': 143,
                     'from': checksum_address,
                     'nonce': nonce,
                     'gas': 500000,  # Increased gas limit
@@ -2393,7 +2393,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if allowance < location_cost:
                     nonce = await w3.eth.get_transaction_count(checksum_address)
                     approve_tx = await tours_contract.functions.approve(contract.address, location_cost).build_transaction({
-                        'chainId': 10143,
+                        'chainId': 143,
                         'from': checksum_address,
                         'nonce': nonce,
                         'gas': 100000,
@@ -2449,7 +2449,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 nonce = await w3.eth.get_transaction_count(checksum_address)
                 tx = await contract.functions.createClimbingLocation(name, difficulty, latitude, longitude, photo_hash).build_transaction({
-                    'chainId': 10143,
+                    'chainId': 143,
                     'from': checksum_address,
                     'nonce': nonce,
                     'gas': 500000,  # Increased gas limit
@@ -2779,7 +2779,7 @@ async def jointournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Verify Web3 connection
         is_connected = await w3.is_connected()
         if not is_connected:
-            logger.error("Web3 not connected to Monad testnet")
+            logger.error("Web3 not connected to Monad")
             await update.message.reply_text("Blockchain connection failed. Try again later or contact support at <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>. 😅", parse_mode="HTML")
             logger.info(f"/jointournament failed due to Web3 connection, took {time.time() - start_time:.2f} seconds")
             return
@@ -3014,7 +3014,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Verify Web3 connection
         is_connected = await w3.is_connected()
         if not is_connected:
-            logger.error("Web3 not connected to Monad testnet")
+            logger.error("Web3 not connected to Monad")
             await update.message.reply_text("Blockchain connection failed. Try again later or contact support at <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>. 😅", parse_mode="HTML")
             logger.info(f"/balance failed due to Web3 connection, took {time.time() - start_time:.2f} seconds")
             return
@@ -3054,7 +3054,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"- {tours_balance / 10**18} $TOURS\n"
                 f"Address: [{checksum_address}]({EXPLORER_URL}/address/{checksum_address})\n"
                 f"Profile Status: {profile_status}\n"
-                f"Top up $MON at https://testnet.monad.xyz/faucet",
+                f"Top up $MON at a DEX or bridge",
                 parse_mode="Markdown"
             )
             logger.info(f"/balance retrieved for user {user_id}, took {time.time() - start_time:.2f} seconds")
@@ -3169,7 +3169,7 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         next_tx_data["longitude"],
                         next_tx_data["photo_hash"]
                     ).build_transaction({
-                        'chainId': 10143,
+                        'chainId': 143,
                         'from': pending["wallet_address"],
                         'nonce': nonce,
                         'gas': 500000,
@@ -3200,7 +3200,7 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         next_tx_data["is_shared"],
                         next_tx_data["cast_hash"]
                     ).build_transaction({
-                        'chainId': 10143,
+                        'chainId': 143,
                         'from': pending["wallet_address"],
                         'nonce': nonce,
                         'gas': 500000,
@@ -3239,7 +3239,7 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
         latest_block = await w3.eth.get_block_number()
         if last_processed_block == 0:
             last_processed_block = max(0, latest_block - 100)
-        batch_size = 100  # Reduced for faster processing; adjust based on testnet latency
+        batch_size = 100  # Reduced for faster processing; adjust based on network conditions
         end_block = min(last_processed_block + batch_size, latest_block + 1)
         num_blocks = end_block - last_processed_block - 1
         if num_blocks <= 0:
@@ -3843,7 +3843,7 @@ async def submit_tx(request: Request):
                                 next_tx_data["longitude"],
                                 next_tx_data["photo_hash"]
                             ).build_transaction({
-                                'chainId': 10143,
+                                'chainId': 143,
                                 'from': pending["wallet_address"],
                                 'nonce': nonce,
                                 'gas': 500000,
@@ -3875,7 +3875,7 @@ async def submit_tx(request: Request):
                                 next_tx_data["is_shared"],
                                 next_tx_data["cast_hash"]
                             ).build_transaction({
-                                'chainId': 10143,
+                                'chainId': 143,
                                 'from': pending["wallet_address"],
                                 'nonce': nonce,
                                 'gas': 500000,
@@ -3994,7 +3994,7 @@ async def submit_tx(request: Request):
                     elif "InsufficientMonSent" in revert_reason:
                         await application.bot.send_message(
                             user_id,
-                            f"Transaction failed: Insufficient $MON sent. Top up at https://testnet.monad.xyz/faucet and try again. 😅"
+                            f"Transaction failed: Insufficient $MON sent. Top up at a DEX or bridge and try again. 😅"
                         )
                     elif "InsufficientTokenBalance" in revert_reason:
                         await application.bot.send_message(

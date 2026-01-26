@@ -9,13 +9,13 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-MONAD_RPC_URL = os.getenv("MONAD_RPC_URL", "https://testnet-rpc.monad.xyz")
+MONAD_RPC_URL = os.getenv("MONAD_RPC_URL", "")
 
 # Initialize Web3 connection
 try:
     w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL))
     if not w3.is_connected():
-        logger.error("Failed to connect to Monad testnet. Check MONAD_RPC_URL.")
+        logger.error("Failed to connect to Monad. Check MONAD_RPC_URL.")
         w3 = None
 except Exception as e:
     logger.error(f"Error initializing Web3: {str(e)}")

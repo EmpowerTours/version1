@@ -240,7 +240,7 @@ async def broadcast_transaction_endpoint(request: BroadcastRequest):
         )
         
         tx_hash = result.get('tx_hash', '')
-        explorer_url = f"https://testnet.monadexplorer.com/tx/{tx_hash}"
+        explorer_url = f"https://monadscan.com/tx/{tx_hash}"
         
         if result['status'] == 'success':
             async with aiohttp.ClientSession() as session:
@@ -298,7 +298,7 @@ async def submit_tx_hash(request: HashRequest):
         cursor.execute("DELETE FROM pending_txs WHERE user_id = ?", (request.telegramUserId,))
         conn.commit()
 
-        explorer_url = f"https://testnet.monadexplorer.com/tx/{request.txHash}"
+        explorer_url = f"https://monadscan.com/tx/{request.txHash}"
         async with aiohttp.ClientSession() as session:
             user_msg = f"Transaction confirmed automatically! <a href='{explorer_url}'>Tx: {request.txHash}</a> 🪙 Action completed."
             await session.post(
@@ -367,7 +367,7 @@ async def purchase_climb(request: PurchaseClimbRequest):
         creator_wallet = cursor.execute("SELECT wallet_address FROM sessions WHERE user_id = ?", (creator_id,)).fetchone()[0]
         tx_data = {
             "value": 0,
-            "chainId": 10143,
+            "chainId": 143,
             "from": cursor.execute("SELECT wallet_address FROM sessions WHERE user_id = ?", (request.user_id,)).fetchone()[0],
             "to": TOURS_TOKEN_ADDRESS,
             "data": w3.eth.contract(address=TOURS_TOKEN_ADDRESS).functions.transfer(creator_wallet, price * 10**18).build_transaction()['data']  # Assume 18 decimals

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-MONAD_RPC_URL = os.getenv("MONAD_RPC_URL", "https://testnet-rpc.monad.xyz")
+MONAD_RPC_URL = os.getenv("MONAD_RPC_URL", "")
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
 TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
 OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
@@ -34,7 +34,7 @@ def initialize_web3():
         try:
             w3 = Web3(Web3.HTTPProvider(MONAD_RPC_URL, request_kwargs={'timeout': 10}))
             if w3.is_connected():
-                logger.info("Successfully connected to Monad testnet")
+                logger.info("Successfully connected to Monad")
                 # EmpowerTours contract ABI (as provided)
                 CONTRACT_ABI = [
     {
@@ -904,7 +904,7 @@ def initialize_web3():
             if attempt < retries:
                 time.sleep(5)
     if not w3:
-        logger.error("Failed to connect to Monad testnet after retries")
+        logger.error("Failed to connect to Monad after retries")
 
 initialize_web3()
 
@@ -1013,14 +1013,14 @@ async def create_profile_tx(wallet_address, user):
                 'message': (
                     f"Need {w3.from_wei(profile_fee + gas_cost, 'ether')} $MON to create profile. "
                     f"Your balance: {w3.from_wei(balance, 'ether')} $MON. "
-                    "Top up at <a href=\"https://testnet.monad.xyz/faucet\">Monad Faucet</a>! 🪙"
+                    "You need more $MON. Get some from a DEX or bridge! 💰"
                 )
             }
         
         # Build createProfile transaction
         nonce = w3.eth.get_transaction_count(wallet_address)
         create_tx = contract.functions.createProfile().build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'nonce': nonce,
             'gas': gas_limit,
@@ -1030,7 +1030,7 @@ async def create_profile_tx(wallet_address, user):
         
         # Build payment transaction to OWNER_ADDRESS
         payment_tx = {
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'to': OWNER_ADDRESS,
             'value': profile_fee,
@@ -1096,7 +1096,7 @@ async def add_journal_entry_tx(wallet_address, content_hash, user):
         gas_fees = await get_gas_fees(wallet_address)
         nonce = w3.eth.get_transaction_count(wallet_address)
         tx = contract.functions.addJournalEntry(content_hash).build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'nonce': nonce,
             'gas': gas_limit,
@@ -1162,13 +1162,13 @@ async def add_comment_tx(wallet_address, entry_id, comment, user):
                 'message': (
                     f"Need {w3.from_wei(comment_fee + gas_cost, 'ether')} $MON to comment. "
                     f"Your balance: {w3.from_wei(balance, 'ether')} $MON. "
-                    "Top up at <a href=\"https://testnet.monad.xyz/faucet\">Monad Faucet</a>! 🪙"
+                    "You need more $MON. Get some from a DEX or bridge! 💰"
                 )
             }
         
         nonce = w3.eth.get_transaction_count(wallet_address)
         tx = contract.functions.addComment(entry_id, comment_hash).build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'value': comment_fee,
             'nonce': nonce,
@@ -1225,7 +1225,7 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
             gas_fees = await get_gas_fees(wallet_address)
             nonce = w3.eth.get_transaction_count(wallet_address)
             approve_tx = tours_contract.functions.approve(CONTRACT_ADDRESS, location_cost).build_transaction({
-                'chainId': 10143,
+                'chainId': 143,
                 'from': wallet_address,
                 'nonce': nonce,
                 'gas': 100000,
@@ -1278,7 +1278,7 @@ async def create_climbing_location_tx(wallet_address, name, difficulty, latitude
         tx = contract.functions.createClimbingLocation(
             name, difficulty, latitude, longitude, photo_hash
         ).build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'nonce': nonce,
             'gas': gas_limit,
@@ -1331,7 +1331,7 @@ async def purchase_climbing_location_tx(wallet_address, location_id, user):
             gas_fees = await get_gas_fees(wallet_address)
             nonce = w3.eth.get_transaction_count(wallet_address)
             approve_tx = tours_contract.functions.approve(CONTRACT_ADDRESS, location_cost).build_transaction({
-                'chainId': 10143,
+                'chainId': 143,
                 'from': wallet_address,
                 'nonce': nonce,
                 'gas': 100000,
@@ -1375,7 +1375,7 @@ async def purchase_climbing_location_tx(wallet_address, location_id, user):
         gas_fees = await get_gas_fees(wallet_address)
         nonce = w3.eth.get_transaction_count(wallet_address)
         tx = contract.functions.purchaseClimbingLocation(location_id).build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'nonce': nonce,
             'gas': gas_limit,
@@ -1431,7 +1431,7 @@ async def create_tournament_tx(wallet_address, entry_fee, user):
         gas_fees = await get_gas_fees(wallet_address)
         nonce = w3.eth.get_transaction_count(wallet_address)
         tx = contract.functions.createTournament(entry_fee).build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'nonce': nonce,
             'gas': gas_limit,
@@ -1485,7 +1485,7 @@ async def join_tournament_tx(wallet_address, tournament_id, user):
             gas_fees = await get_gas_fees(wallet_address)
             nonce = w3.eth.get_transaction_count(wallet_address)
             approve_tx = tours_contract.functions.approve(CONTRACT_ADDRESS, entry_fee).build_transaction({
-                'chainId': 10143,
+                'chainId': 143,
                 'from': wallet_address,
                 'nonce': nonce,
                 'gas': 100000,
@@ -1529,7 +1529,7 @@ async def join_tournament_tx(wallet_address, tournament_id, user):
         gas_fees = await get_gas_fees(wallet_address)
         nonce = w3.eth.get_transaction_count(wallet_address)
         tx = contract.functions.joinTournament(tournament_id).build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'nonce': nonce,
             'gas': gas_limit,
@@ -1586,7 +1586,7 @@ async def end_tournament_tx(wallet_address, tournament_id, winner_address, user)
         gas_fees = await get_gas_fees(wallet_address)
         nonce = w3.eth.get_transaction_count(wallet_address)
         tx = contract.functions.endTournament(tournament_id, winner_address).build_transaction({
-            'chainId': 10143,
+            'chainId': 143,
             'from': wallet_address,
             'nonce': nonce,
             'gas': gas_limit,
@@ -1638,7 +1638,7 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
         cursor.execute("DELETE FROM pending_txs WHERE user_id = ? AND tx_type = ?", (str(user.id), pending_tx['tx_type']))
         conn.commit()
         
-        explorer_url = f"https://testnet.monadexplorer.com/tx/{tx_hash.hex()}"
+        explorer_url = f"https://monadscan.com/tx/{tx_hash.hex()}"
         
         if receipt.status == 1:
             if pending_tx['tx_type'] == 'create_profile':
@@ -1676,7 +1676,7 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                         pending_tx['next_tx']['longitude'],
                         pending_tx['next_tx']['photo_hash']
                     ).build_transaction({
-                        'chainId': 10143,
+                        'chainId': 143,
                         'from': pending_tx['wallet_address'],
                         'nonce': nonce,
                         'gas': 200000,
@@ -1707,7 +1707,7 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                     next_tx = contract.functions.purchaseClimbingLocation(
                         pending_tx['next_tx']['location_id']
                     ).build_transaction({
-                        'chainId': 10143,
+                        'chainId': 143,
                         'from': pending_tx['wallet_address'],
                         'nonce': nonce,
                         'gas': 100000,
@@ -1735,7 +1735,7 @@ async def broadcast_transaction(signed_tx_hex, pending_tx, user, context):
                     next_tx = contract.functions.joinTournament(
                         pending_tx['next_tx']['tournament_id']
                     ).build_transaction({
-                        'chainId': 10143,
+                        'chainId': 143,
                         'from': pending_tx['wallet_address'],
                         'nonce': nonce,
                         'gas': 100000,

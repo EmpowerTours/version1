@@ -2,8 +2,8 @@
   <img src="https://raw.githubusercontent.com/EmpowerTours/version1/main/public/IMG_3466.jpg" alt="EmpowerTours Logo" width="300" style="border-radius: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
   <h1 style="color: #FF4500; font-family: 'Arial Black', sans-serif; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">EmpowerTours</h1>
   <p style="font-size: 1.2em; color: #333; max-width: 800px; margin: 0 auto;">🧗 Web3-Powered Rock Climbing Adventures & Community – Conquer Peaks, Earn Tokens, Build Routes on Monad Blockchain!</p>
-  
-  [![Monad Testnet](https://img.shields.io/badge/Blockchain-Monad%20Testnet-orange?style=for-the-badge&logo=ethereum)](https://monad.xyz)
+
+  [![Monad](https://img.shields.io/badge/Blockchain-Monad-orange?style=for-the-badge&logo=ethereum)](https://monad.xyz)
   [![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-blue?style=for-the-badge&logo=telegram)](https://t.me/AI_RobotExpert_bot)
   [![Community Chat](https://img.shields.io/badge/Chat-Join%20Now-green?style=for-the-badge&logo=telegram)](https://t.me/empowertourschat)
   [![License](https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge)](LI$ENCE)
@@ -12,35 +12,33 @@
 </div>
 
 ### 🚀 Quick Start
-Launch the bot: [@AI_RobotExpert_bot](https://t.me/AI_RobotExpert_bot)  
-Join the community: [@empowertourschat](https://t.me/empowertourschat)  
-Faucet $MON: [Monad Faucet](https://testnet.monad.xyz/faucet)  
+Launch the bot: [@AI_RobotExpert_bot](https://t.me/AI_RobotExpert_bot)
+Join the community: [@empowertourschat](https://t.me/empowertourschat)
 
-### Setting Up Monad Testnet on MetaMask
-If you're new to Monad, here's a quick guide to configure it on MetaMask. This is essential for interacting with EmpowerTours, as the app runs on Monad Testnet.
+### Setting Up Monad on MetaMask
+If you're new to Monad, here's a quick guide to configure it on MetaMask. This is essential for interacting with EmpowerTours.
 
-**Quick Summary of Monad Blockchain:**  
+**Quick Summary of Monad Blockchain:**
 Monad is a high-performance, EVM-compatible Layer-1 blockchain aiming for 10,000 transactions per second (TPS) with 1-second block times. It optimizes Ethereum's architecture through pipelined execution, superscalar design, and MonadDb for faster state access, making it suitable for DeFi, gaming, and dApps requiring speed. Learn more at the [official website](https://monad.xyz) or [documentation](https://docs.monad.xyz).
 
-**Resources:**  
-- Official Guide: [Add Monad to MetaMask](https://docs.monad.xyz/guides/add-monad-to-wallet/metamask)  
-- One-Click Add: [ChainList - Monad Testnet](https://chainlist.org/chain/10143)  
-- Beginner Guide: [Magic Eden Monad Guide](https://help.magiceden.io/en/articles/10583721-introducing-monad-on-magic-eden-a-beginner-s-guide)  
-- Faucet: [Monad Faucet](https://testnet.monad.xyz/faucet)  
+**Resources:**
+- Official Guide: [Add Monad to MetaMask](https://docs.monad.xyz/guides/add-monad-to-wallet/metamask)
+- One-Click Add: [ChainList - Monad](https://chainlist.org/chain/143)
+- Beginner Guide: [Magic Eden Monad Guide](https://help.magiceden.io/en/articles/10583721-introducing-monad-on-magic-eden-a-beginner-s-guide)
 
-**Step-by-Step Setup:**  
-1. Open MetaMask and click on the network dropdown at the top.  
-2. Select "Add Network" > "Add a network manually".  
-3. Enter the following details:  
-   - Network Name: Monad Testnet  
-   - New RPC URL: https://testnet-rpc.monad.xyz  
-   - Chain ID: 10143  
-   - Currency Symbol: MON  
-   - Block Explorer URL: https://testnet.monadexplorer.com  
-4. Click "Save".  
-5. Switch to the network and request testnet $MON from the faucet.  
+**Step-by-Step Setup:**
+1. Open MetaMask and click on the network dropdown at the top.
+2. Select "Add Network" > "Add a network manually".
+3. Enter the following details:
+   - Network Name: Monad
+   - New RPC URL: (use your preferred Monad RPC provider)
+   - Chain ID: 143
+   - Currency Symbol: MON
+   - Block Explorer URL: https://monadscan.com
+4. Click "Save".
+5. Get $MON from a DEX or bridge to Monad.
 
-For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/add-monad-to-wallet/metamask) which include screenshots of the process (e.g., adding custom network, entering RPC details, saving, and verifying assets).
+For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/add-monad-to-wallet/metamask) which include screenshots of the process.
 
 <details>
 <summary><b>🌟 Why EmpowerTours? (Click to Expand)</b></summary>
@@ -65,20 +63,19 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
   <img src="https://img.shields.io/badge/Telegram-Bot_API-cyan?style=flat-square&logo=telegram" alt="Telegram">
 </div>
 
-**Contract Addresses (Monad Testnet):**
-- **EmpowerTours:** `0xB69D011496B7d7a5e5B3D0021dBF4468b0050AB6`
-- **$TOURS Token:** `0x2Da15A8B55BE310A7AB8EB0010506AB30CD6CBcf` 
-- **Owner Wallet:** `0x5fE8373C839948bFCB707A8a8A75A16E2634A725` (90% fees for dev/ops)
-- **Legacy Wallet:** `0x3de6FCEECd5d05363D80A77963Edd3787c96E593` (10% fees for maintenance)
-- **RPC:** https://testnet-rpc.monad.xyz
-- **Explorer:** https://testnet.monadexplorer.com
+**Contract Addresses (Monad Mainnet):**
+- **$TOURS Token:** `0x45b76a127167fD7FC7Ed264ad490144300eCfcBF`
+- **ClimbingLocationsV1:** `0x4aEdA5269172C6C848FA7685bAd87D9fF4Ba0ED5`
+- **WMON:** `0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A`
+- **Platform Safe:** `0xf3b9D123E7Ac8C36FC9B5AB32135c665956725bA`
+- **Explorer:** https://monadscan.com
 
 ### 📖 How It Works
 <details>
 <summary><b>🧑‍💻 User Journey (Interactive Flow)</b></summary>
 <ol style="list-style-type: none; padding: 0;">
   <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/start – Welcome & join chat 🏞️</li>
-  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/connectwallet – Link MetaMask (Chain ID 10143)</li>
+  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/connectwallet – Link MetaMask (Chain ID 143)</li>
   <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/createprofile – Sign tx (1 $MON fee, earn 1 $TOURS)</li>
   <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">Explore: /journal, /buildaclimb, /purchaseclimb...</li>
   <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">Tournaments: Create/Join/End for $TOURS pots</li>
@@ -156,7 +153,7 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
     </tr>
     <tr style="background-color: #f9f9f9;">
       <td>/findaclimb</td>
-      <td>List climbs</td>
+      <td>List climbs</td"))
       <td>Free</td>
     </tr>
     <tr>
@@ -236,12 +233,12 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
 
 ### 🔮 Future Features
 - **3D World Map 🌍**: Interactive 3D globe for climb locations – zoom, explore perspectives with Three.js.
-- Farcaster enhancements, NFTs, leaderboards, AR mobile app, mainnet.
+- Farcaster enhancements, NFTs, leaderboards, AR mobile app.
 
 Open to angel investors – contact Earvin Gallardo.
 
 ### ⚠️ Risks & Disclaimer
-Testnet only. No liability for damages. Proprietary – see License.
+This is a live application on Monad mainnet. Use at your own risk. No liability for damages. Proprietary – see License.
 
 ## License
 
