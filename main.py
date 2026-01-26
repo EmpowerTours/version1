@@ -40,7 +40,7 @@ OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
 LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 WALLET_CONNECT_PROJECT_ID = os.getenv("WALLET_CONNECT_PROJECT_ID")
-EXPLORER_URL = "https://testnet.monadexplorer.com"
+EXPLORER_URL = "https://monadscan.com"
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Log environment variables
