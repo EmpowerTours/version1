@@ -24,7 +24,7 @@ Monad is a high-performance, EVM-compatible Layer-1 blockchain aiming for 10,000
 **Resources:**
 - Official Guide: [Add Monad to MetaMask](https://docs.monad.xyz/guides/add-monad-to-wallet/metamask)
 - One-Click Add: [ChainList - Monad](https://chainlist.org/chain/143)
-- Beginner Guide: [Magic Eden Monad Guide](https://help.magiceden.io/en/articles/10583721-introducing-monad-on-magic-eden-a-beginner-s-guide)
+- Beginner Guide: [Magic Eden Monad Guide](https://help.magiceden.io/en/articles/12913221-getting-started-with-monad-on-magic-eden)
 
 **Step-by-Step Setup:**
 1. Open MetaMask and click on the network dropdown at the top.
