@@ -39,6 +39,7 @@ OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
 WALLET_CONNECT_PROJECT_ID = os.getenv("WALLET_CONNECT_PROJECT_ID")
 ENVIO_GRAPHQL_URL = os.getenv("ENVIO_GRAPHQL_URL")
 EXPLORER_URL = "https://monadscan.com"
+WMON_ADDRESS = os.getenv("WMON_ADDRESS")
 
 # In-memory session storage (wallet connections are ephemeral)
 sessions = {}           # user_id -> {"wallet_address": str}
@@ -57,6 +58,7 @@ logger.info(f"TOURS_TOKEN_ADDRESS: {'Set' if TOURS_TOKEN_ADDRESS else 'Missing'}
 logger.info(f"OWNER_ADDRESS: {'Set' if OWNER_ADDRESS else 'Missing'}")
 logger.info(f"WALLET_CONNECT_PROJECT_ID: {'Set' if WALLET_CONNECT_PROJECT_ID else 'Missing'}")
 logger.info(f"ENVIO_GRAPHQL_URL: {ENVIO_GRAPHQL_URL or 'Missing'}")
+logger.info(f"WMON_ADDRESS: {'Set' if WMON_ADDRESS else 'Missing'}")
 missing_vars = []
 if not TELEGRAM_TOKEN: missing_vars.append("TELEGRAM_TOKEN")
 if not API_BASE_URL: missing_vars.append("API_BASE_URL")
@@ -67,6 +69,7 @@ if not TOURS_TOKEN_ADDRESS: missing_vars.append("TOURS_TOKEN_ADDRESS")
 if not OWNER_ADDRESS: missing_vars.append("OWNER_ADDRESS")
 if not WALLET_CONNECT_PROJECT_ID: missing_vars.append("WALLET_CONNECT_PROJECT_ID")
 if not ENVIO_GRAPHQL_URL: missing_vars.append("ENVIO_GRAPHQL_URL")
+if not WMON_ADDRESS: missing_vars.append("WMON_ADDRESS")
 if missing_vars:
     logger.error(f"Missing environment variables: {', '.join(missing_vars)}")
     logger.warning("Proceeding with limited functionality")
@@ -115,6 +118,71 @@ async def has_purchased_climb(wallet_address: str, location_id: int) -> bool:
     """Check if wallet has purchased a specific climb"""
     purchases = await get_user_purchases(wallet_address)
     return any(p.get("locationId") == str(location_id) for p in purchases)
+
+async def get_user_climb_proofs(wallet_address: str) -> list:
+    """Get all climb proofs (journal NFTs) for a wallet from Envio"""
+    query = """
+    query GetUserClimbProofs($holder: String!) {
+        ClimbProofNFT(where: {holder: {_eq: $holder}}) {
+            tokenId
+            locationId
+            holder
+            holderTelegramId
+            photoHash
+            toursRewarded
+            mintedAt
+        }
+    }
+    """
+    result = await query_envio(query, {"holder": wallet_address.lower()})
+    if result and "data" in result:
+        return result["data"].get("ClimbProofNFT", [])
+    return []
+
+async def get_nft_by_id(token_id: int) -> dict:
+    """Get NFT details by token ID from Envio"""
+    # Access Badges are 1-999,999, Climb Proofs are 1,000,000+
+    if token_id < 1000000:
+        query = """
+        query GetAccessBadge($tokenId: String!) {
+            ClimbAccessBadge(where: {tokenId: {_eq: $tokenId}}) {
+                tokenId
+                locationId
+                holder
+                holderTelegramId
+                purchasedAt
+            }
+        }
+        """
+        result = await query_envio(query, {"tokenId": str(token_id)})
+        if result and "data" in result:
+            badges = result["data"].get("ClimbAccessBadge", [])
+            if badges:
+                badge = badges[0]
+                badge["nftType"] = "Access Badge"
+                return badge
+    else:
+        query = """
+        query GetClimbProof($tokenId: String!) {
+            ClimbProofNFT(where: {tokenId: {_eq: $tokenId}}) {
+                tokenId
+                locationId
+                holder
+                holderTelegramId
+                photoHash
+                toursRewarded
+                mintedAt
+            }
+        }
+        """
+        result = await query_envio(query, {"tokenId": str(token_id)})
+        if result and "data" in result:
+            proofs = result["data"].get("ClimbProofNFT", [])
+            if proofs:
+                proof = proofs[0]
+                proof["nftType"] = "Climb Proof"
+                return proof
+    return None
 
 # Contract ABIs (unchanged)
 CONTRACT_ABI = [
@@ -974,10 +1042,35 @@ TOURS_ABI = [
     }
 ]
 
+WMON_ABI = [
+    {
+        "name": "deposit",
+        "type": "function",
+        "stateMutability": "payable",
+        "inputs": [],
+        "outputs": []
+    },
+    {
+        "name": "withdraw",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "amount", "type": "uint256"}],
+        "outputs": []
+    },
+    {
+        "name": "balanceOf",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "account", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}]
+    }
+]
+
 # Global blockchain variables
 w3 = None
 contract = None
 tours_contract = None
+wmon_contract = None
 webhook_failed = False
 last_processed_block = 0
 processed_updates = set()  # To prevent duplicate processing
@@ -988,8 +1081,8 @@ CACHE_TTL = 300  # 5 minutes
 
 @retry(wait=wait_exponential(multiplier=1, min=4, max=10), stop=stop_after_attempt(5))
 async def initialize_web3():
-    global w3, contract, tours_contract
-    if not MONAD_RPC_URL or not CONTRACT_ADDRESS or not TOURS_TOKEN_ADDRESS:
+    global w3, contract, tours_contract, wmon_contract
+    if not MONAD_RPC_URL or not CONTRACT_ADDRESS or not TOURS_TOKEN_ADDRESS or not WMON_ADDRESS:
         logger.error("Cannot initialize Web3: missing blockchain-related environment variables")
         return False
     try:
@@ -999,6 +1092,7 @@ async def initialize_web3():
             logger.info("AsyncWeb3 initialized successfully")
             contract = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDRESS), abi=CONTRACT_ABI)
             tours_contract = w3.eth.contract(address=w3.to_checksum_address(TOURS_TOKEN_ADDRESS), abi=TOURS_ABI)
+            wmon_contract = w3.eth.contract(address=w3.to_checksum_address(WMON_ADDRESS), abi=WMON_ABI)
             logger.info("Contracts initialized successfully")
             return True
         else:
@@ -1248,11 +1342,16 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/viewclimb [id] - View climb details\n"
             "/purchaseclimb [id] - Buy access (price set by creator)\n"
             "/mypurchases - View your purchased climbs\n\n"
-            "<b>Account</b>\n"
-            "/balance - Check $MON and WMON balance\n\n"
+            "<b>Journal &amp; NFTs</b>\n"
+            "/journal [location_id] - Log a climb (earn NFT + TOURS)\n"
+            "/mynfts - View your NFTs\n"
+            "/viewnft [id] - View NFT details\n\n"
+            "<b>Wallet</b>\n"
+            "/balance - Check MON, WMON, TOURS balance\n"
+            "/wrapmon [amount] - Convert MON to WMON\n"
+            "/unwrapmon [amount] - Convert WMON to MON\n\n"
             "<b>Utilities</b>\n"
-            "/ping - Check bot status\n"
-            "/debug - Check webhook status\n\n"
+            "/ping - Check bot status\n\n"
             "Need help? <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>"
         )
         await update.message.reply_text(help_text, parse_mode="HTML")
@@ -1830,63 +1929,122 @@ async def create_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"/createprofile failed due to unexpected error, took {time.time() - start_time:.2f} seconds")
 
 async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Log a climb to earn a Climb Proof NFT and TOURS tokens - /journal [location_id]"""
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     start_time = time.time()
-    logger.info(f"Received /journal command from user {update.effective_user.id} in chat {update.effective_chat.id}")
-    if not API_BASE_URL:
-        logger.error("API_BASE_URL missing, /journal command disabled")
-        await update.message.reply_text("Journal entry unavailable due to configuration issues. Try again later! 😅")
-        logger.info(f"/journal failed due to missing API_BASE_URL, took {time.time() - start_time:.2f} seconds")
-        return
-    if not w3 or not contract:
-        logger.error("Web3 not initialized, /journal command disabled")
-        await update.message.reply_text("Journal entry unavailable due to blockchain issues. Try again later! 😅")
-        logger.info(f"/journal failed due to Web3 issues, took {time.time() - start_time:.2f} seconds")
-        return
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /journal command from user {user_id}")
     try:
-        user_id = str(update.effective_user.id)
-        content = " ".join(context.args)
-        if not content:
-            await update.message.reply_text("Use: /journal [your journal entry] Then photo. 📸")
-            logger.info(f"/journal failed due to missing content, took {time.time() - start_time:.2f} seconds")
+        session = await get_session(user_id)
+        wallet_address = session.get("wallet_address") if session else None
+        if not wallet_address:
+            await update.message.reply_text("No wallet connected. Use /connectwallet first!")
             return
-        await update.message.reply_text(f"Great, {update.effective_user.first_name}! Send photo. 🌟")
-        await set_journal_data(user_id, {"content": content, "awaiting_photo": True, "timestamp": time.time()})
-        logger.info(f"/journal initiated for user {user_id}, awaiting photo, took {time.time() - start_time:.2f} seconds")
+
+        if not w3 or not contract:
+            await update.message.reply_text("Blockchain connection unavailable. Try again later!")
+            return
+
+        checksum_address = w3.to_checksum_address(wallet_address)
+
+        # Check if user has any purchased climbs
+        purchases = await get_user_purchases(checksum_address)
+        if not purchases:
+            await update.message.reply_text(
+                "You need to purchase a climbing location first!\n\n"
+                "Use /findaclimb to browse available climbs, then /purchaseclimb [id] to buy access."
+            )
+            return
+
+        # Check if location_id was provided
+        if not context.args or len(context.args) < 1:
+            # Show purchased locations
+            message = "Usage: /journal [location_id]\n\nYour purchased climbs:\n"
+            for purchase in purchases[:10]:
+                loc_id = purchase.get("locationId", "?")
+                message += f"  - Location #{loc_id}\n"
+            message += "\nSelect a location ID and send the photo of your climb."
+            await update.message.reply_text(message)
+            return
+
+        try:
+            location_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("Invalid location ID. Please enter a number.")
+            return
+
+        # Check if user has purchased this specific location
+        has_access = any(p.get("locationId") == str(location_id) for p in purchases)
+        if not has_access:
+            await update.message.reply_text(
+                f"You don't have access to location #{location_id}.\n"
+                f"Use /purchaseclimb {location_id} first to buy access."
+            )
+            return
+
+        await update.message.reply_text(
+            f"Logging climb for Location #{location_id}!\n\n"
+            f"Please send a photo of your climb. This will mint a Climb Proof NFT "
+            f"and reward you 1-10 TOURS tokens!"
+        )
+        await set_journal_data(user_id, {
+            "location_id": location_id,
+            "awaiting_photo": True,
+            "timestamp": time.time()
+        })
+        logger.info(f"/journal initiated for user {user_id}, location {location_id}, awaiting photo, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
-        logger.error(f"Error in /journal: {str(e)}, took {time.time() - start_time:.2f} seconds")
+        logger.error(f"Error in /journal: {str(e)}")
         error_msg = html.escape(str(e))
-        support_link = '<a href="https://t.me/empowertourschat">EmpowerTours Chat</a>'
-        await update.message.reply_text(f"Error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
+        await update.message.reply_text(f"Error: {error_msg}. Try again or contact support.", parse_mode="HTML")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
     start_time = time.time()
     user_id = str(update.effective_user.id)
     logger.info(f"Received photo from user {user_id} in chat {update.effective_chat.id}")
-    if not API_BASE_URL:
-        logger.error("API_BASE_URL missing, photo handling disabled")
-        await update.message.reply_text("Photo processing unavailable due to configuration issues. Try again later! 😅")
-        logger.info(f"/handle_photo failed due to missing API_BASE_URL, took {time.time() - start_time:.2f} seconds")
-        return
     if not w3 or not contract:
         logger.error("Web3 not initialized, photo handling disabled")
-        await update.message.reply_text("Photo processing unavailable due to blockchain issues. Try again later! 😅")
-        logger.info(f"/handle_photo failed due to Web3 issues, took {time.time() - start_time:.2f} seconds")
+        await update.message.reply_text("Photo processing unavailable due to blockchain issues. Try again later!")
         return
     try:
         photo = update.message.photo[-1]
         file_id = photo.file_id
-        # Hash the file_id to fixed 32-byte hex (reduces gas/storage) for both journal and climb
-        photo_hash = w3.keccak(text=file_id).hex()  # Now ~66 chars fixed
+        # Hash the file_id to fixed 32-byte hex (reduces gas/storage)
+        photo_hash = w3.keccak(text=file_id).hex()
         journal = await get_journal_data(user_id)
         if journal and journal.get("awaiting_photo"):
-            journal["photo_hash"] = photo_hash
-            journal["awaiting_location"] = True
-            del journal["awaiting_photo"]
-            await set_journal_data(user_id, journal)
-            await update.message.reply_text("Photo received (hashed for efficiency)! Now send the location using the paperclip icon > Location.")
-            logger.info(f"/handle_photo processed for journal, awaiting location for user {user_id}, took {time.time() - start_time:.2f} seconds")
+            # Journal entry photo received - build transaction
+            session = await get_session(user_id)
+            wallet_address = session.get("wallet_address") if session else None
+            if not wallet_address:
+                await update.message.reply_text("Wallet not connected. Use /connectwallet first!")
+                return
+
+            checksum_address = w3.to_checksum_address(wallet_address)
+            location_id = journal.get("location_id")
+
+            # Build the addJournalEntry transaction
+            tx_data = contract.encodeABI(fn_name='addJournalEntry', args=[photo_hash])
+
+            # Create MetaMask deeplink
+            metamask_url = f"https://metamask.app.link/send/{CONTRACT_ADDRESS}@143?data={tx_data}"
+
+            keyboard = [
+                [InlineKeyboardButton("Sign in MetaMask", url=metamask_url)]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                f"Photo received for Location #{location_id}!\n\n"
+                f"Click below to sign the transaction in MetaMask.\n"
+                f"This will mint your Climb Proof NFT and reward you 1-10 TOURS!",
+                reply_markup=reply_markup
+            )
+
+            # Clear journal data
+            await set_journal_data(user_id, None)
+            logger.info(f"/handle_photo journal transaction prepared for user {user_id}, location {location_id}, took {time.time() - start_time:.2f} seconds")
         elif 'pending_climb' in context.user_data:
             pending_climb = context.user_data['pending_climb']
             if pending_climb['user_id'] != user_id:
@@ -3056,13 +3214,14 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             mon_balance = await w3.eth.get_balance(checksum_address)
             tours_balance = await tours_contract.functions.balanceOf(checksum_address).call()
+            wmon_balance = await wmon_contract.functions.balanceOf(checksum_address).call()
             await update.message.reply_text(
                 f"Wallet Balance:\n"
-                f"- {mon_balance / 10**18} $MON\n"
-                f"- {tours_balance / 10**18} $TOURS\n"
+                f"- {mon_balance / 10**18:.4f} $MON\n"
+                f"- {wmon_balance / 10**18:.4f} WMON\n"
+                f"- {tours_balance / 10**18:.4f} $TOURS\n"
                 f"Address: [{checksum_address}]({EXPLORER_URL}/address/{checksum_address})\n"
-                f"Profile Status: {profile_status}\n"
-                f"Top up $MON at a DEX or bridge",
+                f"\nUse /wrapmon to convert MON to WMON for transactions",
                 parse_mode="Markdown"
             )
             logger.info(f"/balance retrieved for user {user_id}, took {time.time() - start_time:.2f} seconds")
@@ -3078,6 +3237,270 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         support_link = '<a href="https://t.me/empowertourschat">EmpowerTours Chat</a>'
         await update.message.reply_text(f"Unexpected error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
         logger.info(f"/balance failed due to unexpected error, took {time.time() - start_time:.2f} seconds")
+
+async def wrapmon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Wrap MON to WMON - /wrapmon [amount]"""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    start_time = time.time()
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /wrapmon command from user {user_id}")
+    try:
+        session = await get_session(user_id)
+        wallet_address = session.get("wallet_address") if session else None
+        if not wallet_address:
+            await update.message.reply_text("No wallet connected. Use /connectwallet first!")
+            return
+
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text(
+                "Usage: /wrapmon [amount]\n"
+                "Example: /wrapmon 10\n\n"
+                "This wraps your MON into WMON, which is required for creating and purchasing climbs."
+            )
+            return
+
+        try:
+            amount = float(context.args[0])
+            if amount <= 0:
+                await update.message.reply_text("Amount must be greater than 0.")
+                return
+        except ValueError:
+            await update.message.reply_text("Invalid amount. Please enter a number.")
+            return
+
+        checksum_address = w3.to_checksum_address(wallet_address)
+        amount_wei = int(amount * 10**18)
+
+        # Check MON balance
+        mon_balance = await w3.eth.get_balance(checksum_address)
+        if mon_balance < amount_wei:
+            await update.message.reply_text(
+                f"Insufficient MON balance.\n"
+                f"You have: {mon_balance / 10**18:.4f} MON\n"
+                f"You need: {amount} MON"
+            )
+            return
+
+        # Build wrap transaction (deposit function with value)
+        nonce = await w3.eth.get_transaction_count(checksum_address)
+        gas_price = await w3.eth.gas_price
+        tx = {
+            'to': w3.to_checksum_address(WMON_ADDRESS),
+            'value': amount_wei,
+            'gas': 50000,
+            'gasPrice': gas_price,
+            'nonce': nonce,
+            'chainId': 143,
+            'data': wmon_contract.encodeABI(fn_name='deposit')
+        }
+
+        # Create MetaMask deeplink
+        tx_data_hex = tx['data']
+        metamask_url = f"https://metamask.app.link/send/{WMON_ADDRESS}@143?value={amount_wei}&data={tx_data_hex}"
+
+        keyboard = [
+            [InlineKeyboardButton("Sign in MetaMask", url=metamask_url)]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"Wrap {amount} MON to WMON:\n\n"
+            f"Click below to sign the transaction in MetaMask.\n"
+            f"After signing, your WMON balance will update.",
+            reply_markup=reply_markup
+        )
+        logger.info(f"/wrapmon transaction prepared for user {user_id}, took {time.time() - start_time:.2f} seconds")
+    except Exception as e:
+        logger.error(f"Error in /wrapmon: {str(e)}")
+        await update.message.reply_text(f"Error: {escape_html(str(e))}. Try again or contact support.", parse_mode="HTML")
+
+async def unwrapmon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unwrap WMON to MON - /unwrapmon [amount]"""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    start_time = time.time()
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /unwrapmon command from user {user_id}")
+    try:
+        session = await get_session(user_id)
+        wallet_address = session.get("wallet_address") if session else None
+        if not wallet_address:
+            await update.message.reply_text("No wallet connected. Use /connectwallet first!")
+            return
+
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text(
+                "Usage: /unwrapmon [amount]\n"
+                "Example: /unwrapmon 10\n\n"
+                "This unwraps your WMON back to MON."
+            )
+            return
+
+        try:
+            amount = float(context.args[0])
+            if amount <= 0:
+                await update.message.reply_text("Amount must be greater than 0.")
+                return
+        except ValueError:
+            await update.message.reply_text("Invalid amount. Please enter a number.")
+            return
+
+        checksum_address = w3.to_checksum_address(wallet_address)
+        amount_wei = int(amount * 10**18)
+
+        # Check WMON balance
+        wmon_balance = await wmon_contract.functions.balanceOf(checksum_address).call()
+        if wmon_balance < amount_wei:
+            await update.message.reply_text(
+                f"Insufficient WMON balance.\n"
+                f"You have: {wmon_balance / 10**18:.4f} WMON\n"
+                f"You need: {amount} WMON"
+            )
+            return
+
+        # Build unwrap transaction (withdraw function)
+        nonce = await w3.eth.get_transaction_count(checksum_address)
+        gas_price = await w3.eth.gas_price
+        tx_data = wmon_contract.encodeABI(fn_name='withdraw', args=[amount_wei])
+        tx = {
+            'to': w3.to_checksum_address(WMON_ADDRESS),
+            'value': 0,
+            'gas': 50000,
+            'gasPrice': gas_price,
+            'nonce': nonce,
+            'chainId': 143,
+            'data': tx_data
+        }
+
+        # Create MetaMask deeplink
+        metamask_url = f"https://metamask.app.link/send/{WMON_ADDRESS}@143?data={tx_data}"
+
+        keyboard = [
+            [InlineKeyboardButton("Sign in MetaMask", url=metamask_url)]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"Unwrap {amount} WMON to MON:\n\n"
+            f"Click below to sign the transaction in MetaMask.\n"
+            f"After signing, your MON balance will update.",
+            reply_markup=reply_markup
+        )
+        logger.info(f"/unwrapmon transaction prepared for user {user_id}, took {time.time() - start_time:.2f} seconds")
+    except Exception as e:
+        logger.error(f"Error in /unwrapmon: {str(e)}")
+        await update.message.reply_text(f"Error: {escape_html(str(e))}. Try again or contact support.", parse_mode="HTML")
+
+async def mynfts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """View user's NFTs - /mynfts"""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    start_time = time.time()
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /mynfts command from user {user_id}")
+    try:
+        session = await get_session(user_id)
+        wallet_address = session.get("wallet_address") if session else None
+        if not wallet_address:
+            await update.message.reply_text("No wallet connected. Use /connectwallet first!")
+            return
+
+        checksum_address = w3.to_checksum_address(wallet_address)
+
+        # Get Access Badges (purchases) and Climb Proofs (journals)
+        access_badges = await get_user_purchases(checksum_address)
+        climb_proofs = await get_user_climb_proofs(checksum_address)
+
+        if not access_badges and not climb_proofs:
+            await update.message.reply_text(
+                "You don't have any NFTs yet!\n\n"
+                "- Purchase a climb with /purchaseclimb to get an Access Badge\n"
+                "- Log a climb with /journal to earn a Climb Proof NFT"
+            )
+            return
+
+        message = "Your NFTs:\n\n"
+
+        if access_badges:
+            message += f"Access Badges ({len(access_badges)}):\n"
+            for badge in access_badges[:10]:  # Limit to 10
+                token_id = badge.get("tokenId", "?")
+                location_id = badge.get("locationId", "?")
+                message += f"  #{token_id} - Location #{location_id}\n"
+            if len(access_badges) > 10:
+                message += f"  ... and {len(access_badges) - 10} more\n"
+            message += "\n"
+
+        if climb_proofs:
+            message += f"Climb Proofs ({len(climb_proofs)}):\n"
+            for proof in climb_proofs[:10]:  # Limit to 10
+                token_id = proof.get("tokenId", "?")
+                location_id = proof.get("locationId", "?")
+                tours = int(proof.get("toursRewarded", 0)) / 10**18
+                message += f"  #{token_id} - Location #{location_id} (+{tours:.0f} TOURS)\n"
+            if len(climb_proofs) > 10:
+                message += f"  ... and {len(climb_proofs) - 10} more\n"
+
+        message += f"\nUse /viewnft [id] to view details"
+        await update.message.reply_text(message)
+        logger.info(f"/mynfts success for user {user_id}, took {time.time() - start_time:.2f} seconds")
+    except Exception as e:
+        logger.error(f"Error in /mynfts: {str(e)}")
+        await update.message.reply_text(f"Error: {escape_html(str(e))}. Try again or contact support.", parse_mode="HTML")
+
+async def viewnft(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """View specific NFT details - /viewnft [id]"""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    start_time = time.time()
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /viewnft command from user {user_id}")
+    try:
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text(
+                "Usage: /viewnft [token_id]\n"
+                "Example: /viewnft 1\n\n"
+                "Use /mynfts to see your NFT IDs."
+            )
+            return
+
+        try:
+            token_id = int(context.args[0])
+            if token_id <= 0:
+                await update.message.reply_text("Token ID must be a positive number.")
+                return
+        except ValueError:
+            await update.message.reply_text("Invalid token ID. Please enter a number.")
+            return
+
+        nft = await get_nft_by_id(token_id)
+        if not nft:
+            await update.message.reply_text(f"NFT #{token_id} not found.")
+            return
+
+        nft_type = nft.get("nftType", "Unknown")
+        location_id = nft.get("locationId", "?")
+        holder = nft.get("holder", "?")
+
+        message = f"{nft_type} #{token_id}\n\n"
+        message += f"Location: #{location_id}\n"
+        message += f"Holder: <a href=\"{EXPLORER_URL}/address/{holder}\">{holder[:10]}...</a>\n"
+
+        if nft_type == "Access Badge":
+            purchased_at = nft.get("purchasedAt", "Unknown")
+            message += f"Purchased: {purchased_at}\n"
+        else:
+            minted_at = nft.get("mintedAt", "Unknown")
+            tours = int(nft.get("toursRewarded", 0)) / 10**18
+            photo_hash = nft.get("photoHash", "")
+            message += f"Minted: {minted_at}\n"
+            message += f"TOURS Rewarded: {tours:.0f}\n"
+            if photo_hash:
+                message += f"Photo: <a href=\"https://ipfs.io/ipfs/{photo_hash}\">View</a>\n"
+
+        message += f"\nContract: <a href=\"{EXPLORER_URL}/token/{CONTRACT_ADDRESS}?a={token_id}\">View on Explorer</a>"
+        await update.message.reply_text(message, parse_mode="HTML")
+        logger.info(f"/viewnft success for token {token_id}, took {time.time() - start_time:.2f} seconds")
+    except Exception as e:
+        logger.error(f"Error in /viewnft: {str(e)}")
+        await update.message.reply_text(f"Error: {escape_html(str(e))}. Try again or contact support.", parse_mode="HTML")
 
 async def mypurchases(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
@@ -3463,24 +3886,18 @@ async def startup_event():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("tutorial", tutorial))
         application.add_handler(CommandHandler("connectwallet", connect_wallet))
-        application.add_handler(CommandHandler("createprofile", create_profile))
         application.add_handler(CommandHandler("help", help))
-        application.add_handler(CommandHandler("journal", journal_entry))
-        application.add_handler(CommandHandler("comment", add_comment))
         application.add_handler(CommandHandler("buildaclimb", buildaclimb))
-        application.add_handler(CommandHandler("purchaseclimb", purchase_climb))
         application.add_handler(CommandHandler("findaclimb", findaclimb))
-        application.add_handler(CommandHandler("journals", journals))
-        application.add_handler(CommandHandler("viewjournal", viewjournal))
         application.add_handler(CommandHandler("viewclimb", viewclimb))
+        application.add_handler(CommandHandler("purchaseclimb", purchase_climb))
         application.add_handler(CommandHandler("mypurchases", mypurchases))
-        application.add_handler(CommandHandler("createtournament", createtournament))
-        application.add_handler(CommandHandler("tournaments", tournaments))
-        application.add_handler(CommandHandler("jointournament", jointournament))
-        application.add_handler(CommandHandler("endtournament", endtournament))
+        application.add_handler(CommandHandler("journal", journal_entry))
+        application.add_handler(CommandHandler("mynfts", mynfts))
+        application.add_handler(CommandHandler("viewnft", viewnft))
         application.add_handler(CommandHandler("balance", balance))
-        application.add_handler(CommandHandler("buyTours", buy_tours))
-        application.add_handler(CommandHandler("sendTours", send_tours))
+        application.add_handler(CommandHandler("wrapmon", wrapmon))
+        application.add_handler(CommandHandler("unwrapmon", unwrapmon))
         application.add_handler(CommandHandler("ping", ping))
         application.add_handler(CommandHandler("debug", debug_command))
         application.add_handler(CommandHandler("forcewebhook", forcewebhook))

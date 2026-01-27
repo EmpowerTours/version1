@@ -141,11 +141,36 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
       <td>Free</td>
     </tr>
     <tr style="background-color: #f9f9f9;">
-      <td>/balance</td>
-      <td>Check $MON and WMON balance</td>
+      <td>/journal [id]</td>
+      <td>Log a climb (earn NFT + 1-10 TOURS)</td>
+      <td>Gas only</td>
+    </tr>
+    <tr>
+      <td>/mynfts</td>
+      <td>View your NFTs (Access Badges & Climb Proofs)</td>
+      <td>Free</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
+      <td>/viewnft [id]</td>
+      <td>View NFT details</td>
       <td>Free</td>
     </tr>
     <tr>
+      <td>/balance</td>
+      <td>Check MON, WMON, TOURS balance</td>
+      <td>Free</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
+      <td>/wrapmon [amount]</td>
+      <td>Convert MON to WMON</td>
+      <td>Gas only</td>
+    </tr>
+    <tr>
+      <td>/unwrapmon [amount]</td>
+      <td>Convert WMON to MON</td>
+      <td>Gas only</td>
+    </tr>
+    <tr style="background-color: #f9f9f9;">
       <td>/help</td>
       <td>Command list</td>
       <td>Free</td>
