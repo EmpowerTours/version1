@@ -3,66 +3,351 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EmpowerTours Wallet Connect</title>
+    <title>EmpowerTours - Connect Wallet</title>
     <link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            text-align: center;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
-            background-color: #f4f4f4;
-            background-image: url('IMG_3466.jpg');
-            background-size: cover;
-            background-position: center bottom;
+            position: relative;
+            overflow-x: hidden;
         }
+
+        body::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 30% 30%, rgba(94, 234, 212, 0.08) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 70%, rgba(139, 92, 246, 0.08) 0%, transparent 50%);
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            50% { transform: translate(-20px, -20px) rotate(5deg); }
+        }
+
+        .container {
+            position: relative;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 40px 32px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+        }
+
+        .logo {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, #5eead4 0%, #8b5cf6 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 28px;
+        }
+
         h1 {
-            color: #ffffff;
+            color: #fff;
+            font-size: 24px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 8px;
         }
-        button {
-            padding: 12px 24px;
-            font-size: 16px;
-            cursor: pointer;
-            background-color: #28a745;
-            color: #000;
-            border: none;
-            border-radius: 5px;
-            margin: 10px;
-        }
-        button:hover {
-            background-color: #218838;
-            color: #000;
-        }
-        #status {
-            margin-top: 20px;
-            font-size: 18px;
-            color: #ff4;
-        }
-        #error {
-            color: #dc3545;
-            margin-top: 10px;
-        }
-        #txHash {
-            word-break: break-all;
-            margin-top: 10px;
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.5);
             font-size: 14px;
+            text-align: center;
+            margin-bottom: 32px;
         }
-        #instructions {
-            margin-top: 15px;
+
+        .network-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(94, 234, 212, 0.1);
+            border: 1px solid rgba(94, 234, 212, 0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #5eead4;
+            margin-bottom: 24px;
+        }
+
+        .network-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #5eead4;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        #connectButton {
+            width: 100%;
+            padding: 16px 24px;
             font-size: 16px;
-            color: #ff4;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+            color: #0f172a;
+            border: none;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #connectButton:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px -10px rgba(94, 234, 212, 0.5);
+        }
+
+        #connectButton:active {
+            transform: translateY(0);
+        }
+
+        #connectButton:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #status {
+            margin-top: 24px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+            text-align: center;
+            line-height: 1.5;
+            min-height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #status.connected {
+            background: rgba(94, 234, 212, 0.1);
+            color: #5eead4;
+        }
+
+        #error {
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 12px;
+            color: #f87171;
+            font-size: 13px;
+            text-align: center;
+            display: none;
+        }
+
+        #error:not(:empty) {
+            display: block;
+        }
+
+        #txHash {
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 12px;
+            color: #a78bfa;
+            font-size: 12px;
+            font-family: 'SF Mono', Monaco, monospace;
+            word-break: break-all;
+            text-align: center;
+            display: none;
+        }
+
+        #txHash:not(:empty) {
+            display: block;
+        }
+
+        .divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.08);
+            margin: 24px 0;
+        }
+
+        .instructions {
+            margin-top: 24px;
+        }
+
+        .instructions-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .instruction-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .instruction-item:last-child {
+            border-bottom: none;
+        }
+
+        .instruction-num {
+            width: 24px;
+            height: 24px;
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .instruction-text {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.6);
+            line-height: 1.5;
+        }
+
+        .instruction-text a {
+            color: #5eead4;
+            text-decoration: none;
+        }
+
+        .instruction-text a:hover {
+            text-decoration: underline;
+        }
+
+        .footer {
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        .footer-link {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 12px;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .footer-link:hover {
+            color: #5eead4;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
+            .card {
+                padding: 32px 24px;
+            }
+            h1 {
+                font-size: 20px;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>EmpowerTours Wallet Connect</h1>
-    <button id="connectButton">Connect Wallet</button>
-    <div id="status">Please connect your wallet to Monad (chainId: 143).</div>
-    <div id="instructions">On mobile, open this link in the MetaMask app's browser (Menu > Browser) to connect. If you see a chain ID mismatch, go to MetaMask Settings > Networks, remove any old Monad entries, and reconnect. Network details: Chain ID: 143, Explorer: https://monadscan.com. After connecting, use /createprofile, /buildaclimb, or /buyTours in Telegram.</div>
-    <div id="error"></div>
-    <div id="txHash"></div>
+    <div class="container">
+        <div class="card">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                    <path d="M2 17l10 5 10-5"></path>
+                    <path d="M2 12l10 5 10-5"></path>
+                </svg>
+            </div>
+            <h1>Connect Your Wallet</h1>
+            <p class="subtitle">Link your wallet to start your journey</p>
+
+            <div style="text-align: center;">
+                <span class="network-badge">Monad Mainnet (Chain ID: 143)</span>
+            </div>
+
+            <button id="connectButton">Connect Wallet</button>
+
+            <div id="status">Ready to connect</div>
+            <div id="error"></div>
+            <div id="txHash"></div>
+
+            <div class="divider"></div>
+
+            <div class="instructions">
+                <div class="instructions-title">How to Connect</div>
+                <div class="instruction-item">
+                    <span class="instruction-num">1</span>
+                    <span class="instruction-text">On mobile, open this link in MetaMask's built-in browser (Menu > Browser)</span>
+                </div>
+                <div class="instruction-item">
+                    <span class="instruction-num">2</span>
+                    <span class="instruction-text">Make sure you're on Monad network. If prompted, approve adding the network.</span>
+                </div>
+                <div class="instruction-item">
+                    <span class="instruction-num">3</span>
+                    <span class="instruction-text">After connecting, use <strong>/createprofile</strong>, <strong>/buildaclimb</strong>, or <strong>/buyTours</strong> in Telegram</span>
+                </div>
+            </div>
+
+            <div class="footer">
+                <a href="https://monadscan.com" target="_blank" class="footer-link">View on Monadscan</a>
+                <span style="color: rgba(255,255,255,0.2); margin: 0 8px;">|</span>
+                <a href="https://t.me/empowertourschat" target="_blank" class="footer-link">Get Support</a>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
     <script src="https://unpkg.com/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
     <script>
@@ -71,12 +356,28 @@
         const statusDiv = document.getElementById('status');
         const errorDiv = document.getElementById('error');
         const txHashDiv = document.getElementById('txHash');
+        const connectButton = document.getElementById('connectButton');
         let web3;
         let provider;
         let pollingInterval = null;
-        const MONAD_CHAIN_ID = '0x8f'; // 143 in hex
+        const MONAD_CHAIN_ID = '0x8f';
         const MONAD_CHAIN_ID_DECIMAL = 143;
-        const MONAD_RPC = 'https://monad-mainnet.g.alchemy.com/v2/demo'; // Public RPC fallback
+        const MONAD_RPC = 'https://monad-mainnet.g.alchemy.com/v2/demo';
+
+        function setStatus(message, isConnected = false) {
+            statusDiv.innerHTML = message;
+            statusDiv.className = isConnected ? 'connected' : '';
+        }
+
+        function setLoading(loading) {
+            if (loading) {
+                connectButton.disabled = true;
+                connectButton.innerHTML = '<span class="loading"></span>Connecting...';
+            } else {
+                connectButton.disabled = false;
+                connectButton.textContent = 'Connect Wallet';
+            }
+        }
 
         async function initializeWeb3() {
             try {
@@ -94,12 +395,12 @@
                     });
                     web3 = new Web3(provider);
                 } else {
-                    throw new Error('No wallet provider detected. Install MetaMask or use a Web3-compatible browser.');
+                    throw new Error('No wallet detected. Please install MetaMask or use a Web3 browser.');
                 }
             } catch (error) {
-                errorDiv.textContent = `Error initializing Web3: ${error.message}. On mobile, open this link in MetaMask's browser (Menu > Browser). On desktop, install MetaMask.`;
+                errorDiv.textContent = error.message;
                 console.error('Web3 initialization error:', error);
-                statusDiv.textContent = 'Please connect your wallet to Monad (chainId: 143).';
+                setStatus('Ready to connect');
                 return false;
             }
             return true;
@@ -107,18 +408,24 @@
 
         async function connectWallet() {
             errorDiv.textContent = '';
-            statusDiv.textContent = 'Connecting...';
+            setLoading(true);
+            setStatus('Connecting to wallet...');
             console.log('Attempting to connect wallet for userId:', userId);
-            if (!await initializeWeb3()) return;
+
+            if (!await initializeWeb3()) {
+                setLoading(false);
+                return;
+            }
+
             try {
                 if (provider.isWalletConnect) {
                     await provider.enable();
                 }
                 const chainId = await web3.eth.getChainId();
                 console.log('Current chain ID (decimal):', chainId);
+
                 if (Number(chainId) !== MONAD_CHAIN_ID_DECIMAL) {
-                    errorDiv.textContent = `Chain ID mismatch: expected 143 (Monad), got ${chainId}. Please switch to Monad in MetaMask Settings > Networks.`;
-                    console.warn('Chain ID mismatch detected:', chainId);
+                    setStatus('Switching to Monad network...');
                     try {
                         await provider.request({
                             method: 'wallet_switchEthereumChain',
@@ -126,6 +433,7 @@
                         });
                     } catch (switchError) {
                         if (switchError.code === 4902) {
+                            setStatus('Adding Monad network...');
                             await provider.request({
                                 method: 'wallet_addEthereumChain',
                                 params: [{
@@ -137,20 +445,26 @@
                                 }],
                             });
                         } else {
-                            throw new Error(`Failed to switch chain: ${switchError.message}. Ensure Monad (chainId: 143) is selected.`);
+                            throw new Error('Failed to switch network. Please add Monad manually in MetaMask.');
                         }
                     }
                 }
+
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
                 const account = accounts[0];
-                statusDiv.textContent = `Connected: ${account.substring(0, 6)}... Use /createprofile, /buildaclimb, or /buyTours in Telegram to continue.`;
+                const shortAddr = `${account.substring(0, 6)}...${account.substring(account.length - 4)}`;
+                setStatus(`Connected: ${shortAddr}`, true);
+                connectButton.textContent = 'Connected';
+                connectButton.disabled = true;
                 console.log('Connected account:', account);
+
                 await submitWallet(account);
                 startPolling();
             } catch (error) {
-                errorDiv.textContent = `Error connecting wallet: ${error.message}. Ensure Monad (chainId: 143) is selected. On mobile, use MetaMask's browser (Menu > Browser).`;
+                errorDiv.textContent = error.message || 'Failed to connect wallet';
                 console.error('Error connecting wallet:', error);
-                statusDiv.textContent = 'Please connect your wallet to Monad (chainId: 143).';
+                setStatus('Ready to connect');
+                setLoading(false);
             }
         }
 
@@ -165,17 +479,16 @@
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${await response.text()}`);
                 }
-                statusDiv.textContent += ' Wallet submitted! Use /createprofile, /buildaclimb, or /buyTours in Telegram to continue.';
                 console.log('Wallet submitted successfully');
             } catch (error) {
-                errorDiv.textContent = `Error submitting wallet: ${error.message}. Try again or contact support at https://t.me/empowertourschat.`;
+                errorDiv.textContent = `Error submitting wallet: ${error.message}`;
                 console.error('Error submitting wallet:', error);
             }
         }
 
         async function pollTransaction() {
             if (!web3) {
-                errorDiv.textContent = 'Web3 provider not initialized. Please reconnect your wallet.';
+                errorDiv.textContent = 'Web3 not initialized. Please reconnect.';
                 console.error('Web3 not initialized');
                 stopPolling();
                 return;
@@ -184,9 +497,7 @@
                 console.log('Polling transaction for userId:', userId);
                 const response = await fetch(`${apiBaseUrl}/get_transaction?userId=${userId}`);
                 if (response.status === 404) {
-                    statusDiv.textContent = 'No pending transaction. Initiate an action via Telegram (e.g., /buildaclimb).';
                     console.log('No pending transaction found');
-                    stopPolling();
                     return;
                 }
                 if (!response.ok) {
@@ -195,27 +506,24 @@
                 const data = await response.json();
                 if (data.transaction) {
                     stopPolling();
-                    statusDiv.textContent = 'Transaction ready! Waiting for wallet to sign...';
+                    setStatus('<span class="loading"></span>Waiting for signature...', true);
                     console.log('Transaction data received:', data.transaction);
                     try {
                         const txResult = await web3.eth.sendTransaction(data.transaction);
                         const txHash = txResult.transactionHash;
-                        statusDiv.textContent = `Transaction signed: ${txHash.substring(0, 6)}...`;
-                        txHashDiv.textContent = `Transaction Hash: ${txHash}\n`;
+                        const shortHash = `${txHash.substring(0, 10)}...${txHash.substring(txHash.length - 8)}`;
+                        setStatus(`Transaction signed!`, true);
+                        txHashDiv.innerHTML = `<a href="https://monadscan.com/tx/${txHash}" target="_blank" style="color: inherit;">${shortHash}</a>`;
                         console.log('Transaction signed, hash:', txHash);
                         await submitTransaction(txHash);
-                        statusDiv.textContent = `Transaction submitted: ${txHash.substring(0, 6)}...`;
-                        console.log('Transaction submitted to server');
                     } catch (error) {
-                        errorDiv.textContent = `Error signing transaction: ${error.message}. Check parameters or contact support at https://t.me/empowertourschat.`;
+                        errorDiv.textContent = `Transaction failed: ${error.message}`;
                         console.error('Error signing transaction:', error);
+                        startPolling();
                     }
-                } else {
-                    statusDiv.textContent = 'Waiting for transaction...';
-                    console.log('No transaction data available yet');
                 }
             } catch (error) {
-                errorDiv.textContent = `Error polling transaction: ${error.message}. Try refreshing the page or contact support at https://t.me/empowertourschat.`;
+                errorDiv.textContent = `Polling error: ${error.message}`;
                 console.error('Error polling transaction:', error);
             }
         }
@@ -233,7 +541,7 @@
                 }
                 console.log('Transaction hash submitted successfully');
             } catch (error) {
-                errorDiv.textContent = `Error submitting transaction: ${error.message}. Please send the transaction hash to the Telegram bot manually.`;
+                errorDiv.textContent = `Error submitting tx: ${error.message}`;
                 console.error('Error submitting transaction:', error);
             }
         }
@@ -253,7 +561,8 @@
             }
         }
 
-        document.getElementById('connectButton').addEventListener('click', connectWallet);
+        connectButton.addEventListener('click', connectWallet);
+
         window.addEventListener('load', async () => {
             if (userId) {
                 console.log('Page loaded, initializing Web3 for userId:', userId);
@@ -261,7 +570,8 @@
                     startPolling();
                 }
             } else {
-                errorDiv.textContent = 'Missing userId in URL. Use the link provided by /connectwallet in Telegram.';
+                errorDiv.textContent = 'Missing userId. Please use the link from /connectwallet in Telegram.';
+                connectButton.disabled = true;
                 console.error('Missing userId in URL');
             }
         });
