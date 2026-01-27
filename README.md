@@ -44,9 +44,8 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
 <summary><b>🌟 Why EmpowerTours? (Click to Expand)</b></summary>
 <div style="background-color: #f9f9f9; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
 
-- **Journal Climbs 🗒️**: Log ascents with photos, GPS, notes – earn 5 $TOURS per entry!
-- **Build & Buy Routes 🪨**: Create/share custom climbs (10 $TOURS cost to contract) or purchase (10 $TOURS to creator).
-- **Tournaments 🏆**: Compete for $TOURS pots – entry fees build the prize!
+- **Build Climbing Locations 🪨**: Create and share custom climbs with photos, GPS, and difficulty ratings (35 WMON).
+- **Purchase Access 🎫**: Buy access to climbs created by others (price set by creator).
 - **Web3 Incentives 💰**: Transparent fees, on-chain events, Monad speed.
 - **Community Vibes 👥**: Telegram chat for tips, meets, collabs.
 
@@ -58,7 +57,7 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
   <img src="https://img.shields.io/badge/Python-3.12-blue?style=flat-square&logo=python" alt="Python">
   <img src="https://img.shields.io/badge/FastAPI-0.100-green?style=flat-square&logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/Web3.py-6.0-orange?style=flat-square&logo=ethereum" alt="Web3.py">
-  <img src="https://img.shields.io/badge/PostgreSQL-15-blue?style=flat-square&logo=postgresql" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/Envio-GraphQL-purple?style=flat-square&logo=graphql" alt="Envio">
   <img src="https://img.shields.io/badge/Solidity-0.8-black?style=flat-square&logo=solidity" alt="Solidity">
   <img src="https://img.shields.io/badge/Telegram-Bot_API-cyan?style=flat-square&logo=telegram" alt="Telegram">
 </div>
@@ -74,21 +73,21 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
 <details>
 <summary><b>🧑‍💻 User Journey (Interactive Flow)</b></summary>
 <ol style="list-style-type: none; padding: 0;">
-  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/start – Welcome & join chat 🏞️</li>
+  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/start – Welcome & get started 🏞️</li>
   <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/connectwallet – Link MetaMask (Chain ID 143)</li>
-  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/createprofile – Sign tx (1 $MON fee, earn 1 $TOURS)</li>
-  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">Explore: /journal, /buildaclimb, /purchaseclimb...</li>
-  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">Tournaments: Create/Join/End for $TOURS pots</li>
+  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/findaclimb – Browse available climbing locations</li>
+  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/buildaclimb – Create a climb (35 WMON)</li>
+  <li style="background: linear-gradient(to right, #FF4500, #FFA500); color: white; padding: 10px; margin: 5px 0; border-radius: 5px;">/purchaseclimb – Buy access to a climb</li>
 </ol>
 </details>
 
 <details>
 <summary><b>🔗 Backend & Blockchain Flow</b></summary>
+
 - **Bot:** Processes commands, builds unsigned tx.
 - **API:** Handles wallet/tx submission.
-- **DB:** Sessions, pendings (expires 30min).
-- **Monitoring:** Events polled every 30s; notifies chat/users.
-- **Fees in Tournaments:** 100% of entry fees ($TOURS) go to pot; on end, 5% fee to legacy wallet (maintenance), 95% to winner.
+- **Indexing:** Envio GraphQL for event indexing.
+- **Contract:** ClimbingLocationsV1 on Monad mainnet.
 </details>
 
 ### 📋 Commands & Usage
@@ -97,7 +96,7 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
     <tr style="background-color: #FF4500; color: white;">
       <th style="padding: 10px; text-align: left;">Command</th>
       <th style="padding: 10px; text-align: left;">Description</th>
-      <th style="padding: 10px; text-align: left;">Cost/Reward</th>
+      <th style="padding: 10px; text-align: left;">Cost</th>
     </tr>
   </thead>
   <tbody>
@@ -113,95 +112,40 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
     </tr>
     <tr style="background-color: #f9f9f9;">
       <td>/connectwallet</td>
-      <td>Link wallet</td>
+      <td>Link wallet (MetaMask deeplink)</td>
       <td>Free</td>
     </tr>
     <tr>
-      <td>/createprofile</td>
-      <td>Create profile</td>
-      <td>1 $MON (earn 1 $TOURS)</td>
-    </tr>
-    <tr style="background-color: #f9f9f9;">
-      <td>/buyTours <amount></td>
-      <td>Buy $TOURS</td>
-      <td>1 $MON per $TOURS</td>
-    </tr>
-    <tr>
-      <td>/sendTours <recipient> <amount></td>
-      <td>Send $TOURS</td>
-      <td>Gas only</td>
-    </tr>
-    <tr style="background-color: #f9f9f9;">
-      <td>/journal <entry></td>
-      <td>Log climb</td>
-      <td>Earn 5 $TOURS</td>
-    </tr>
-    <tr>
-      <td>/comment <id> <comment></td>
-      <td>Comment on journal</td>
-      <td>0.1 $MON</td>
-    </tr>
-    <tr style="background-color: #f9f9f9;">
-      <td>/buildaclimb <name> <difficulty></td>
-      <td>Create route</td>
-      <td>10 $TOURS (to contract)</td>
-    </tr>
-    <tr>
-      <td>/purchaseclimb <id></td>
-      <td>Buy route</td>
-      <td>10 $TOURS (to creator)</td>
+      <td>/buildaclimb [name] [difficulty]</td>
+      <td>Create a climbing location</td>
+      <td>35 WMON</td>
     </tr>
     <tr style="background-color: #f9f9f9;">
       <td>/findaclimb</td>
-      <td>List climbs</td"))
+      <td>Browse available climbs</td>
       <td>Free</td>
     </tr>
     <tr>
-      <td>/viewclimb <id></td>
-      <td>Climb details</td>
+      <td>/viewclimb [id]</td>
+      <td>View climb details</td>
       <td>Free</td>
     </tr>
     <tr style="background-color: #f9f9f9;">
+      <td>/purchaseclimb [id]</td>
+      <td>Buy access to a climb</td>
+      <td>Set by creator</td>
+    </tr>
+    <tr>
       <td>/mypurchases</td>
-      <td>Your purchases</td>
-      <td>Free</td>
-    </tr>
-    <tr>
-      <td>/journals</td>
-      <td>List entries</td>
+      <td>View your purchased climbs</td>
       <td>Free</td>
     </tr>
     <tr style="background-color: #f9f9f9;">
-      <td>/viewjournal <id></td>
-      <td>Entry + comments</td>
-      <td>Free</td>
-    </tr>
-    <tr>
-      <td>/createtournament <fee></td>
-      <td>Start tournament</td>
-      <td>Free (gas)</td>
-    </tr>
-    <tr style="background-color: #f9f9f9;">
-      <td>/tournaments</td>
-      <td>List tournaments</td>
-      <td>Free</td>
-    </tr>
-    <tr>
-      <td>/jointournament <id></td>
-      <td>Join</td>
-      <td>Entry fee $TOURS (to pot)</td>
-    </tr>
-    <tr style="background-color: #f9f9f9;">
-      <td>/endtournament <id> <winner></td>
-      <td>End (owner)</td>
-      <td>Free; 95% pot to winner, 5% fee to legacy</td>
-    </tr>
-    <tr>
       <td>/balance</td>
-      <td>Check balances</td>
+      <td>Check $MON and WMON balance</td>
       <td>Free</td>
     </tr>
-    <tr style="background-color: #f9f9f9;">
+    <tr>
       <td>/help</td>
       <td>Command list</td>
       <td>Free</td>
@@ -209,25 +153,22 @@ For visual steps, check the [official Monad docs](https://docs.monad.xyz/guides/
   </tbody>
 </table>
 
-### 💰 Costs, Fees & Transparency
+### 💰 Costs & Fees
 <details>
 <summary><b>📊 Fee Breakdown (All On-Chain)</b></summary>
 <ul>
-  <li><b>Profiles/Comments/Buy $TOURS:</b> 90% to OWNER_ADDRESS (dev/ops), 10% to LEGACY_ADDRESS (maintenance).</li>
-  <li><b>Build Climbs:</b> 10 $TOURS to contract (for platform/rewards).</li>
-  <li><b>Purchase Climbs:</b> 100% (10 $TOURS) to creator.</li>
-  <li><b>Tournaments:</b> 100% entry fees ($TOURS) to pot; on end, 5% fee to legacy wallet (maintenance), 95% to winner.</li>
-  <li><b>Rewards:</b> From contract pool (prefunded).</li>
+  <li><b>Create Climb:</b> 35 WMON to platform.</li>
+  <li><b>Purchase Climb:</b> Price set by creator (paid in WMON).</li>
   <li><b>Gas:</b> ~0.001-0.01 $MON/tx.</li>
-  <li><b>Audit:</b> Explorer links; events for all actions.</li>
+  <li><b>Transparency:</b> All transactions visible on <a href="https://monadscan.com">Monadscan</a>.</li>
 </ul>
 </details>
 
 <details>
 <summary><b>⚡ Response Times</b></summary>
+
 - Commands: 1-5s
 - Tx Confirm: 1-10s (Monad)
-- Events: ~30s poll
 - Overall: <10s typical
 </details>
 
@@ -245,4 +186,4 @@ This is a live application on Monad mainnet. Use at your own risk. No liability 
 Earvin Gallardo owns the entity in its entirety, including all intellectual property rights. For licensing inquiries, investment opportunities, or permissions, contact Earvin Gallardo directly.
 See full license at [LICENSE](https://github.com/EmpowerTours/version1/blob/main/LI$ENCE)
 
-© 2025 EmpowerTours. Built with xAI & Monad. Join the adventure! 🧗
+© 2026 EmpowerTours. Built on Monad. Join the adventure! 🧗
