@@ -3252,11 +3252,17 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Processing {num_blocks} blocks (from {last_processed_block + 1} to {end_block - 1})")
 
         # Fetch all logs from the contract in the block range (efficient alternative to per-block fetching)
-        logs = await w3.eth.get_logs({
-            'fromBlock': last_processed_block + 1,
-            'toBlock': end_block - 1,
-            'address': w3.to_checksum_address(CONTRACT_ADDRESS)
-        })
+        try:
+            logs = await w3.eth.get_logs({
+                'fromBlock': last_processed_block + 1,
+                'toBlock': end_block - 1,
+                'address': w3.to_checksum_address(CONTRACT_ADDRESS)
+            })
+        except Exception as logs_error:
+            # Skip this batch if logs fetch fails (e.g., RPC doesn't support this query)
+            logger.warning(f"Failed to fetch logs, skipping batch: {logs_error}")
+            last_processed_block = end_block - 1
+            return
 
         # Event map with corrected signatures, hashes, and lambdas (hashes computed from ABI signatures)
         event_map = {

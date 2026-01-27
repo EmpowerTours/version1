@@ -23,14 +23,14 @@
             font-size: 16px;
             cursor: pointer;
             background-color: #28a745;
-            color: #000; /* Changed to black for better visibility */
+            color: #000;
             border: none;
             border-radius: 5px;
             margin: 10px;
         }
         button:hover {
             background-color: #218838;
-            color: #000; /* Changed to black for better visibility */
+            color: #000;
         }
         #status {
             margin-top: 20px;
@@ -59,8 +59,8 @@
 <body>
     <h1>EmpowerTours Wallet Connect</h1>
     <button id="connectButton">Connect Wallet</button>
-    <div id="status">Please connect your wallet to Monad Testnet (chainId: 10143).</div>
-    <div id="instructions">On mobile, open this link in the MetaMask app's browser (Menu > Browser) to connect. If you see a chain ID mismatch, go to MetaMask Settings > Networks, remove all Monad Testnet entries, and reconnect. Network details: Chain ID: 10143, RPC: https://testnet-rpc.monad.xyz, Explorer: https://testnet.monadexplorer.com. After connecting, use /createprofile, /buildaclimb, or /buyTours in Telegram.</div>
+    <div id="status">Please connect your wallet to Monad (chainId: 143).</div>
+    <div id="instructions">On mobile, open this link in the MetaMask app's browser (Menu > Browser) to connect. If you see a chain ID mismatch, go to MetaMask Settings > Networks, remove any old Monad entries, and reconnect. Network details: Chain ID: 143, Explorer: https://monadscan.com. After connecting, use /createprofile, /buildaclimb, or /buyTours in Telegram.</div>
     <div id="error"></div>
     <div id="txHash"></div>
     <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
@@ -74,8 +74,9 @@
         let web3;
         let provider;
         let pollingInterval = null;
-        const MONAD_TESTNET_CHAIN_ID = '0x27af'; // 10143 in hex
-        const MONAD_TESTNET_CHAIN_ID_DECIMAL = 10143;
+        const MONAD_CHAIN_ID = '0x8f'; // 143 in hex
+        const MONAD_CHAIN_ID_DECIMAL = 143;
+        const MONAD_RPC = 'https://monad-mainnet.g.alchemy.com/v2/demo'; // Public RPC fallback
 
         async function initializeWeb3() {
             try {
@@ -87,8 +88,8 @@
                     web3 = new Web3(provider);
                 } else if (window.WalletConnectProvider) {
                     provider = new window.WalletConnectProvider({
-                        rpc: { 10143: 'https://testnet-rpc.monad.xyz' },
-                        chainId: 10143,
+                        rpc: { 143: MONAD_RPC },
+                        chainId: 143,
                         qrcode: true
                     });
                     web3 = new Web3(provider);
@@ -96,9 +97,9 @@
                     throw new Error('No wallet provider detected. Install MetaMask or use a Web3-compatible browser.');
                 }
             } catch (error) {
-                errorDiv.textContent = `Error initializing Web3: ${error.message}. On mobile, open this link in MetaMask’s browser (Menu > Browser). On desktop, install MetaMask.`;
+                errorDiv.textContent = `Error initializing Web3: ${error.message}. On mobile, open this link in MetaMask's browser (Menu > Browser). On desktop, install MetaMask.`;
                 console.error('Web3 initialization error:', error);
-                statusDiv.textContent = 'Please connect your wallet to Monad Testnet (chainId: 10143).';
+                statusDiv.textContent = 'Please connect your wallet to Monad (chainId: 143).';
                 return false;
             }
             return true;
@@ -115,28 +116,28 @@
                 }
                 const chainId = await web3.eth.getChainId();
                 console.log('Current chain ID (decimal):', chainId);
-                if (Number(chainId) !== MONAD_TESTNET_CHAIN_ID_DECIMAL) {
-                    errorDiv.textContent = `Chain ID mismatch: expected 10143 (Monad Testnet), got ${chainId}. Please switch to Monad Testnet in MetaMask Settings > Networks.`;
+                if (Number(chainId) !== MONAD_CHAIN_ID_DECIMAL) {
+                    errorDiv.textContent = `Chain ID mismatch: expected 143 (Monad), got ${chainId}. Please switch to Monad in MetaMask Settings > Networks.`;
                     console.warn('Chain ID mismatch detected:', chainId);
                     try {
                         await provider.request({
                             method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: MONAD_TESTNET_CHAIN_ID }],
+                            params: [{ chainId: MONAD_CHAIN_ID }],
                         });
                     } catch (switchError) {
                         if (switchError.code === 4902) {
                             await provider.request({
                                 method: 'wallet_addEthereumChain',
                                 params: [{
-                                    chainId: MONAD_TESTNET_CHAIN_ID,
-                                    chainName: 'Monad Testnet',
-                                    rpcUrls: ['https://testnet-rpc.monad.xyz'],
+                                    chainId: MONAD_CHAIN_ID,
+                                    chainName: 'Monad',
+                                    rpcUrls: [MONAD_RPC],
                                     nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
-                                    blockExplorerUrls: ['https://testnet.monadexplorer.com']
+                                    blockExplorerUrls: ['https://monadscan.com']
                                 }],
                             });
                         } else {
-                            throw new Error(`Failed to switch chain: ${switchError.message}. Ensure Monad Testnet (chainId: 10143) is selected.`);
+                            throw new Error(`Failed to switch chain: ${switchError.message}. Ensure Monad (chainId: 143) is selected.`);
                         }
                     }
                 }
@@ -147,9 +148,9 @@
                 await submitWallet(account);
                 startPolling();
             } catch (error) {
-                errorDiv.textContent = `Error connecting wallet: ${error.message}. Ensure Monad Testnet (chainId: 10143) is selected. On mobile, use MetaMask’s browser (Menu > Browser).`;
+                errorDiv.textContent = `Error connecting wallet: ${error.message}. Ensure Monad (chainId: 143) is selected. On mobile, use MetaMask's browser (Menu > Browser).`;
                 console.error('Error connecting wallet:', error);
-                statusDiv.textContent = 'Please connect your wallet to Monad Testnet (chainId: 10143).';
+                statusDiv.textContent = 'Please connect your wallet to Monad (chainId: 143).';
             }
         }
 
@@ -193,12 +194,12 @@
                 }
                 const data = await response.json();
                 if (data.transaction) {
-                    stopPolling();  // Stop polling immediately after fetching tx to prevent multiples
+                    stopPolling();
                     statusDiv.textContent = 'Transaction ready! Waiting for wallet to sign...';
                     console.log('Transaction data received:', data.transaction);
                     try {
                         const txResult = await web3.eth.sendTransaction(data.transaction);
-                        const txHash = txResult.transactionHash;  // Extract the hash string from the receipt object
+                        const txHash = txResult.transactionHash;
                         statusDiv.textContent = `Transaction signed: ${txHash.substring(0, 6)}...`;
                         txHashDiv.textContent = `Transaction Hash: ${txHash}\n`;
                         console.log('Transaction signed, hash:', txHash);
@@ -208,7 +209,6 @@
                     } catch (error) {
                         errorDiv.textContent = `Error signing transaction: ${error.message}. Check parameters or contact support at https://t.me/empowertourschat.`;
                         console.error('Error signing transaction:', error);
-                        // Optional: Restart polling on failure - startPolling();
                     }
                 } else {
                     statusDiv.textContent = 'Waiting for transaction...';
