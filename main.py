@@ -1288,18 +1288,25 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
         base_url = API_BASE_URL.rstrip('/')
         connect_url = f"{base_url}/public/connect.html?userId={user_id}"
-        logger.info(f"Generated connect URL: {connect_url}")
-        keyboard = [[InlineKeyboardButton("Connect with MetaMask/WalletConnect", url=connect_url)]]
+        # Create MetaMask deeplink for mobile - strips https:// for the deeplink format
+        connect_url_for_deeplink = connect_url.replace('https://', '').replace('http://', '')
+        metamask_deeplink = f"https://metamask.app.link/dapp/{connect_url_for_deeplink}"
+        logger.info(f"Generated connect URL: {connect_url}, MetaMask deeplink: {metamask_deeplink}")
+        # Provide both mobile deeplink and desktop browser link
+        keyboard = [
+            [InlineKeyboardButton("📱 Open in MetaMask (Mobile)", url=metamask_deeplink)],
+            [InlineKeyboardButton("🖥️ Open in Browser (Desktop)", url=connect_url)]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = (
-            "Click the button to connect your wallet via MetaMask or WalletConnect. "
-            "On mobile, copy this link and open it in the MetaMask app's browser (Menu > Browser). "
-            "If you see a chain ID mismatch, go to MetaMask Settings > Networks, remove all Monad Testnet entries, and reconnect. "
-            "After connecting, use /createprofile to create your profile or /balance to check your status. "
-            "If the link fails, contact support at <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>."
+            "<b>Connect Your Wallet</b>\n\n"
+            "📱 <b>Mobile:</b> Tap 'Open in MetaMask' - this will launch MetaMask directly.\n\n"
+            "🖥️ <b>Desktop:</b> Tap 'Open in Browser' and connect via MetaMask extension.\n\n"
+            "After connecting, use /createprofile to get started or /balance to check your status. "
+            "Need help? <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>"
         )
         await update.message.reply_text(message, reply_markup=reply_markup, parse_mode="HTML")
-        logger.info(f"Sent /connectwallet response to user {update.effective_user.id}: {message}, took {time.time() - start_time:.2f} seconds")
+        logger.info(f"Sent /connectwallet response to user {update.effective_user.id}, took {time.time() - start_time:.2f} seconds")
         await set_pending_wallet(user_id, {"awaiting_wallet": True, "timestamp": time.time()})
         logger.info(f"Added user {user_id} to pending_wallets: {pending_wallets.get(user_id)}")
     except Exception as e:
