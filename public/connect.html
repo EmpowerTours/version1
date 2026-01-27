@@ -62,13 +62,16 @@
         .logo {
             width: 64px;
             height: 64px;
-            background: linear-gradient(135deg, #5eead4 0%, #8b5cf6 100%);
             border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             margin: 0 auto 24px;
-            font-size: 28px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         h1 {
@@ -303,11 +306,7 @@
     <div class="container">
         <div class="card">
             <div class="logo">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-                    <path d="M2 17l10 5 10-5"></path>
-                    <path d="M2 12l10 5 10-5"></path>
-                </svg>
+                <img src="IMG_3466.jpg" alt="EmpowerTours">
             </div>
             <h1>Connect Your Wallet</h1>
             <p class="subtitle">Link your wallet to start your journey</p>
