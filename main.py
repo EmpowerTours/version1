@@ -3603,36 +3603,38 @@ async def submit_wallet(request: Request):
             logger.error(f"Missing userId or walletAddress in /submit_wallet: {data}")
             raise HTTPException(status_code=400, detail="Missing userId or walletAddress")
         logger.info(f"Received wallet submission for user {user_id}: {wallet_address}")
-        
+
         # Validate wallet address
         if not w3 or not w3.is_address(wallet_address):
             logger.error(f"Invalid wallet address or Web3 not initialized: {wallet_address}")
-            await application.bot.send_message(user_id, "Invalid wallet address or blockchain unavailable. Try /connectwallet again. 😅")
             logger.info(f"/submit_wallet failed due to invalid address or Web3, took {time.time() - start_time:.2f} seconds")
-            return {"status": "error"}
-        
+            return {"status": "error", "message": "Invalid wallet address"}
+
         # Process wallet even if not in pending_wallets to handle edge cases
         pending = await get_pending_wallet(user_id)
         if not pending or not pending.get("awaiting_wallet"):
             logger.warning(f"No pending wallet connection for user {user_id}, proceeding anyway")
-        
+
+        # Save the wallet first - this is the critical operation
+        checksum_address = w3.to_checksum_address(wallet_address)
+        await set_session(user_id, checksum_address)
+        await delete_pending_wallet(user_id)
+        logger.info(f"/submit_wallet saved wallet for user {user_id}: {checksum_address}")
+
+        # Try to send Telegram notification (non-critical - don't fail if this errors)
         try:
-            checksum_address = w3.to_checksum_address(wallet_address)
-            await set_session(user_id, checksum_address)
             await application.bot.send_message(
                 user_id,
-                f"Wallet [{checksum_address[:6]}...]({EXPLORER_URL}/address/{checksum_address}) connected! Use /createprofile to create your profile or /balance to check your status. 🪙",
+                f"Wallet [{checksum_address[:6]}...]({EXPLORER_URL}/address/{checksum_address}) connected! Use /createprofile to create your profile or /balance to check your status.",
                 parse_mode="Markdown"
             )
-            await delete_pending_wallet(user_id)
-            logger.info(f"/submit_wallet processed for user {user_id}, wallet {checksum_address}, took {time.time() - start_time:.2f} seconds")
-            return {"status": "success"}
-        except Exception as e:
-            logger.error(f"Error processing wallet address for user {user_id}: {str(e)}")
-            error_msg = html.escape(str(e))
-            support_link = '<a href="https://t.me/empowertourschat">EmpowerTours Chat</a>'
-            await application.bot.send_message(user_id, f"Error connecting wallet: {error_msg}. Try /connectwallet again. 😅 Contact support at {support_link}.", parse_mode="HTML")
-            return {"status": "error"}
+        except Exception as tg_error:
+            logger.warning(f"Could not send Telegram notification to user {user_id}: {str(tg_error)}")
+
+        logger.info(f"/submit_wallet processed for user {user_id}, wallet {checksum_address}, took {time.time() - start_time:.2f} seconds")
+        return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in /submit_wallet: {str(e)}, took {time.time() - start_time:.2f} seconds")
         raise HTTPException(status_code=500, detail=str(e))
