@@ -20,7 +20,6 @@ import socket
 import json
 import subprocess
 from datetime import datetime
-import asyncpg  # Added for Postgres
 from tenacity import retry, wait_exponential, stop_after_attempt  # Added for retries
 
 # Setup logging
@@ -34,14 +33,18 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL")
 CHAT_HANDLE = os.getenv("CHAT_HANDLE")
 MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS")
+CONTRACT_ADDRESS = os.getenv("CLIMBING_CONTRACT_ADDRESS")
 TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
 OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
-LEGACY_ADDRESS = os.getenv("LEGACY_ADDRESS")
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 WALLET_CONNECT_PROJECT_ID = os.getenv("WALLET_CONNECT_PROJECT_ID")
+ENVIO_GRAPHQL_URL = os.getenv("ENVIO_GRAPHQL_URL")
 EXPLORER_URL = "https://monadscan.com"
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+# In-memory session storage (wallet connections are ephemeral)
+sessions = {}           # user_id -> {"wallet_address": str}
+reverse_sessions = {}   # wallet_address -> user_id
+pending_wallets = {}    # user_id -> pending wallet data
+journal_data = {}       # user_id -> pending journal data
 
 # Log environment variables
 logger.info("Environment variables:")
@@ -52,10 +55,8 @@ logger.info(f"MONAD_RPC_URL: {'Set' if MONAD_RPC_URL else 'Missing'}")
 logger.info(f"CONTRACT_ADDRESS: {'Set' if CONTRACT_ADDRESS else 'Missing'}")
 logger.info(f"TOURS_TOKEN_ADDRESS: {'Set' if TOURS_TOKEN_ADDRESS else 'Missing'}")
 logger.info(f"OWNER_ADDRESS: {'Set' if OWNER_ADDRESS else 'Missing'}")
-logger.info(f"LEGACY_ADDRESS: {'Set' if LEGACY_ADDRESS else 'Missing'}")
-logger.info(f"PRIVATE_KEY: {'Set' if PRIVATE_KEY else 'Missing'}")
 logger.info(f"WALLET_CONNECT_PROJECT_ID: {'Set' if WALLET_CONNECT_PROJECT_ID else 'Missing'}")
-logger.info(f"DATABASE_URL: {'Set' if DATABASE_URL else 'Missing'}")
+logger.info(f"ENVIO_GRAPHQL_URL: {ENVIO_GRAPHQL_URL or 'Missing'}")
 missing_vars = []
 if not TELEGRAM_TOKEN: missing_vars.append("TELEGRAM_TOKEN")
 if not API_BASE_URL: missing_vars.append("API_BASE_URL")
@@ -64,15 +65,56 @@ if not MONAD_RPC_URL: missing_vars.append("MONAD_RPC_URL")
 if not CONTRACT_ADDRESS: missing_vars.append("CONTRACT_ADDRESS")
 if not TOURS_TOKEN_ADDRESS: missing_vars.append("TOURS_TOKEN_ADDRESS")
 if not OWNER_ADDRESS: missing_vars.append("OWNER_ADDRESS")
-if not LEGACY_ADDRESS: missing_vars.append("LEGACY_ADDRESS")
-if not PRIVATE_KEY: missing_vars.append("PRIVATE_KEY")
 if not WALLET_CONNECT_PROJECT_ID: missing_vars.append("WALLET_CONNECT_PROJECT_ID")
-if not DATABASE_URL: missing_vars.append("DATABASE_URL")
+if not ENVIO_GRAPHQL_URL: missing_vars.append("ENVIO_GRAPHQL_URL")
 if missing_vars:
     logger.error(f"Missing environment variables: {', '.join(missing_vars)}")
     logger.warning("Proceeding with limited functionality")
 else:
     logger.info("All required environment variables are set")
+
+# Envio GraphQL query helper
+async def query_envio(query: str, variables: dict = None) -> dict:
+    """Query Envio GraphQL endpoint for blockchain data"""
+    if not ENVIO_GRAPHQL_URL:
+        logger.error("ENVIO_GRAPHQL_URL not set")
+        return None
+    try:
+        async with aiohttp.ClientSession() as session:
+            payload = {"query": query}
+            if variables:
+                payload["variables"] = variables
+            async with session.post(ENVIO_GRAPHQL_URL, json=payload) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                logger.error(f"Envio query failed: {resp.status}")
+                return None
+    except Exception as e:
+        logger.error(f"Envio query error: {e}")
+        return None
+
+async def get_user_purchases(wallet_address: str) -> list:
+    """Get all climb purchases for a wallet from Envio"""
+    query = """
+    query GetUserPurchases($holder: String!) {
+        ClimbAccessBadge(where: {holder: {_eq: $holder}}) {
+            tokenId
+            locationId
+            holder
+            holderTelegramId
+            purchasedAt
+        }
+    }
+    """
+    result = await query_envio(query, {"holder": wallet_address.lower()})
+    if result and "data" in result:
+        return result["data"].get("ClimbAccessBadge", [])
+    return []
+
+async def has_purchased_climb(wallet_address: str, location_id: int) -> bool:
+    """Check if wallet has purchased a specific climb"""
+    purchases = await get_user_purchases(wallet_address)
+    return any(p.get("locationId") == str(location_id) for p in purchases)
 
 # Contract ABIs (unchanged)
 CONTRACT_ABI = [
@@ -936,11 +978,6 @@ TOURS_ABI = [
 w3 = None
 contract = None
 tours_contract = None
-pool = None
-sessions = {}
-pending_wallets = {}
-journal_data = {}
-reverse_sessions = {}  # wallet: user_id mapping for event PMs
 webhook_failed = False
 last_processed_block = 0
 processed_updates = set()  # To prevent duplicate processing
@@ -1848,12 +1885,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Hash the file_id to fixed 32-byte hex (reduces gas/storage) for both journal and climb
         photo_hash = w3.keccak(text=file_id).hex()  # Now ~66 chars fixed
         journal = await get_journal_data(user_id)
-        entry_type = 'journal' if journal and journal.get("awaiting_photo") else 'climb'
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO media_files (hash, file_id, user_id, entry_type, entry_id) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (hash) DO NOTHING",
-                photo_hash, file_id, user_id, entry_type, None
-            )
         if journal and journal.get("awaiting_photo"):
             journal["photo_hash"] = photo_hash
             journal["awaiting_location"] = True
@@ -2021,13 +2052,6 @@ async def viewjournal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Created: {datetime.fromtimestamp(entry[2]).strftime('%Y-%m-%d %H:%M:%S')}\n"
         )
         await update.message.reply_text(message, parse_mode="Markdown")
-        if photo_hash:
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow("SELECT file_id FROM media_files WHERE hash = $1", photo_hash)
-            if row:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=row['file_id'], caption="Photo for this journal entry")
-            else:
-                await update.message.reply_text("Photo not found in database.")
         comment_count = await contract.functions.getCommentCount(entry_id).call({'gas': 500000})
         coros = [contract.functions.journalComments(entry_id, j).call({'gas': 500000}) for j in range(comment_count)]
         comments_data = await asyncio.gather(*coros, return_exceptions=True)
@@ -2072,13 +2096,6 @@ async def viewclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         has_photo = photo_hash != ''
         message = f"🧗 Climb ID: {loc_id} - {location[1]} ({location[2]}) by [{location[0][:6]}...]({EXPLORER_URL}/address/{location[0]})\n   Location: {location[3]/1000000:.6f}, {location[4]/1000000:.6f}\n   Map: https://www.google.com/maps?q={location[3]/1000000:.6f},{location[4]/1000000:.6f}\n   Photo: {'Yes' if has_photo else 'No'}\n   Purchases: {location[10]}\n   Created: {datetime.fromtimestamp(location[6]).strftime('%Y-%m-%d %H:%M:%S')}"
         await update.message.reply_text(message, parse_mode="Markdown")
-        if has_photo:
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow("SELECT file_id FROM media_files WHERE hash = $1", photo_hash)
-            if row:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=row['file_id'], caption="Photo for this climb")
-            else:
-                await update.message.reply_text("Photo not found in database.")
         logger.info(f"/viewclimb details for {loc_id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
         logger.error(f"Error in /viewclimb: {str(e)}")
@@ -2518,13 +2535,9 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"/purchaseclimb failed due to missing wallet, took {time.time() - start_time:.2f} seconds")
             return
         checksum_address = w3.to_checksum_address(wallet_address)
-        # Check if already purchased
-        async with pool.acquire() as conn:
-            count = await conn.fetchval(
-                "SELECT COUNT(*) FROM purchases WHERE wallet_address = $1 AND location_id = $2",
-                checksum_address, location_id
-            )
-        if count > 0:
+        # Check if already purchased (via Envio)
+        already_purchased = await has_purchased_climb(checksum_address, location_id)
+        if already_purchased:
             await update.message.reply_text(f"You have already purchased climb #{location_id}. Check /mypurchases! 😅")
             logger.info(f"/purchaseclimb failed: already purchased climb {location_id} for user {user_id}, took {time.time() - start_time:.2f} seconds")
             return
@@ -3084,36 +3097,27 @@ async def mypurchases(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wallet_address = session["wallet_address"]
         checksum_address = w3.to_checksum_address(wallet_address) if w3 else wallet_address  # Fallback if w3 unavailable
 
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT location_id, timestamp FROM purchases WHERE wallet_address = $1 ORDER BY timestamp DESC",
-                checksum_address
-            )
+        # Query Envio for purchases
+        purchases = await get_user_purchases(checksum_address)
 
-        if not rows:
+        if not purchases:
             await update.message.reply_text("No purchased climbs found. Use /purchaseclimb to buy one! 😅")
             logger.info(f"/mypurchases no purchases found, took {time.time() - start_time:.2f} seconds")
             return
 
         await update.message.reply_text("Your purchased climbs:")
-        for row in rows:
-            climb = await contract.functions.getClimbingLocation(row['location_id']).call()
-            message = f"🏔️ #{row['location_id']} {escape_html(climb[1])} ({escape_html(climb[2])}) - Purchased {datetime.fromtimestamp(row['timestamp']).strftime('%Y-%m-%d %H:%M')}\n"
+        for purchase in purchases:
+            location_id = int(purchase.get("locationId", 0))
+            purchased_at = purchase.get("purchasedAt", "")
+            climb = await contract.functions.getClimbingLocation(location_id).call()
+            message = f"🏔️ #{location_id} {escape_html(climb[1])} ({escape_html(climb[2])}) - Purchased {purchased_at}\n"
             message += f"   Creator: <a href=\"{EXPLORER_URL}/address/{climb[0]}\">{climb[0][:6]}...</a>\n"
             message += f"   Location: ({climb[3]/10**6:.4f}, {climb[4]/10**6:.4f})\n"
             message += f"   Map: https://www.google.com/maps?q={climb[3]/10**6},{climb[4]/10**6}\n"
             message += f"   Purchases: {climb[10]}\n"
             await update.message.reply_text(message, parse_mode="HTML")
-            photo_hash = climb[5]
-            if photo_hash:
-                async with pool.acquire() as conn:
-                    row_photo = await conn.fetchrow("SELECT file_id FROM media_files WHERE hash = $1", photo_hash)
-                if row_photo:
-                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=row_photo['file_id'], caption=f"Photo for climb #{row['location_id']}")
-                else:
-                    await update.message.reply_text(f"Photo not found for climb #{row['location_id']}.")
 
-        logger.info(f"/mypurchases success with {len(rows)} purchases, took {time.time() - start_time:.2f} seconds")
+        logger.info(f"/mypurchases success with {len(purchases)} purchases, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
         logger.error(f"Unexpected error in /mypurchases: {str(e)}, took {time.time() - start_time:.2f} seconds")
         error_msg = html.escape(str(e))
@@ -3343,27 +3347,7 @@ async def monitor_events(context: ContextTypes.DEFAULT_TYPE):
                             user_id = reverse_sessions[checksum_user_address]
                             user_message = f"Your action succeeded! {message.replace('<a href=', '[Tx: ').replace('</a>', ']')} 🪙 Check details on {EXPLORER_URL}/tx/{log['transactionHash'].hex()}"
                             await application.bot.send_message(user_id, user_message, parse_mode="Markdown")
-                    # Store purchase in DB if LocationPurchased
-                    if topic0 == "b092b68cd4087066d88561f213472db328f688a8993b20e9eab36fee4d6679fd":  # LocationPurchased(uint256,address,uint256)
-                        buyer = event.args.buyer
-                        checksum_buyer = w3.to_checksum_address(buyer)
-                        if checksum_buyer in reverse_sessions:
-                            user_id = reverse_sessions[checksum_buyer]
-                            async with pool.acquire() as conn:
-                                await conn.execute(
-                                    "INSERT INTO purchases (user_id, wallet_address, location_id, timestamp) VALUES ($1, $2, $3, $4)",
-                                    user_id, checksum_buyer, event.args.locationId, event.args.timestamp
-                                )
-                    elif topic0 == "ad043c04181883ece2f6dc02cf2978a3b453c3d2323bb4bfb95865f910e6c3ce":  # LocationPurchasedEnhanced
-                        buyer = event.args.buyer
-                        checksum_buyer = w3.to_checksum_address(buyer)
-                        if checksum_buyer in reverse_sessions:
-                            user_id = reverse_sessions[checksum_buyer]
-                            async with pool.acquire() as conn:
-                                await conn.execute(
-                                    "INSERT INTO purchases (user_id, wallet_address, location_id, timestamp) VALUES ($1, $2, $3, $4)",
-                                    user_id, checksum_buyer, event.args.locationId, event.args.timestamp
-                                )
+                    # Purchase events are indexed by Envio - no local storage needed
             except Exception as e:
                 logger.error(f"Error processing log: {str(e)}")
 
@@ -3393,11 +3377,6 @@ async def set_session(user_id, wallet_address):
     sessions[user_id] = {"wallet_address": wallet_address}
     if wallet_address:
         reverse_sessions[wallet_address] = user_id
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO users (user_id, wallet_address) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET wallet_address = $2",
-            user_id, wallet_address
-        )
 
 async def get_pending_wallet(user_id):
     return pending_wallets.get(user_id)
@@ -3405,18 +3384,11 @@ async def get_pending_wallet(user_id):
 async def set_pending_wallet(user_id, data):
     global pending_wallets
     pending_wallets[user_id] = data
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO pending_wallets (user_id, data, timestamp) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET data = $2, timestamp = $3",
-            user_id, json.dumps(data), data['timestamp']
-        )
 
 async def delete_pending_wallet(user_id):
     global pending_wallets
     if user_id in pending_wallets:
         del pending_wallets[user_id]
-    async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM pending_wallets WHERE user_id = $1", user_id)
 
 async def get_journal_data(user_id):
     return journal_data.get(user_id)
@@ -3424,126 +3396,20 @@ async def get_journal_data(user_id):
 async def set_journal_data(user_id, data):
     global journal_data
     journal_data[user_id] = data
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO journal_data (user_id, data, timestamp) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET data = $2, timestamp = $3",
-            user_id, json.dumps(data), data['timestamp']
-        )
 
-async def get_purchase_events(wallet_address, from_block, to_block, step=500, event_name='LocationPurchased'):
-    events = []
-    event = getattr(contract.events, event_name)
-    for start in range(from_block, to_block + 1, step):
-        end = min(start + step - 1, to_block)
-        try:
-            event_filter = await event.create_filter(
-                fromBlock=start,
-                toBlock=end,
-                argument_filters={'buyer': wallet_address} if wallet_address else None
-            )
-            batch_events = await event_filter.get_all_entries()
-            events.extend(batch_events)
-        except Exception as e:
-            logger.warning(f"Error fetching {event_name} events for batch {start}-{end}: {str(e)}. Skipping batch.")
-        await asyncio.sleep(0.1)
-    return events
-    
 async def delete_journal_data(user_id):
     global journal_data
     if user_id in journal_data:
         del journal_data[user_id]
-    async with pool.acquire() as conn:
-        await conn.execute("DELETE FROM journal_data WHERE user_id = $1", user_id)
 
 async def startup_event():
     start_time = time.time()
-    global application, webhook_failed, pool, sessions, reverse_sessions, pending_wallets, journal_data
+    global application, webhook_failed, sessions, reverse_sessions, pending_wallets, journal_data
     try:
-        # Initialize Postgres pool
-        pool = await asyncpg.create_pool(DATABASE_URL)
-        async with pool.acquire() as conn:
-            # Create tables
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                wallet_address TEXT
-            )
-            """)
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS pending_wallets (
-                user_id TEXT PRIMARY KEY,
-                data JSONB,
-                timestamp FLOAT
-            )
-            """)
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS journal_data (
-                user_id TEXT PRIMARY KEY,
-                data JSONB,
-                timestamp FLOAT
-            )
-            """)
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS media_files (
-                hash TEXT PRIMARY KEY,
-                file_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                entry_type TEXT NOT NULL,
-                entry_id INTEGER
-            )
-            """)
-            await conn.execute("""
-            CREATE TABLE IF NOT EXISTS purchases (
-                user_id TEXT,
-                wallet_address TEXT,
-                location_id INTEGER,
-                timestamp INTEGER
-            )
-            """)
-
-            # Load data
-            rows = await conn.fetch("SELECT * FROM users")
-            sessions = {}
-            reverse_sessions = {}
-            for row in rows:
-                sessions[row['user_id']] = {"wallet_address": row['wallet_address']}
-                if row['wallet_address']:
-                    reverse_sessions[row['wallet_address']] = row['user_id']
-
-            rows = await conn.fetch("SELECT * FROM pending_wallets")
-            pending_wallets = {}
-            current_time = time.time()
-            for row in rows:
-                if current_time - row['timestamp'] < 3600:
-                    pending_wallets[row['user_id']] = json.loads(row['data'])
-                    pending_wallets[row['user_id']]['timestamp'] = row['timestamp']
-
-            rows = await conn.fetch("SELECT * FROM journal_data")
-            journal_data = {}
-            for row in rows:
-                if current_time - row['timestamp'] < 3600:
-                    journal_data[row['user_id']] = json.loads(row['data'])
-                    journal_data[row['user_id']]['timestamp'] = row['timestamp']
-
-            logger.info(f"Loaded from DB: {len(sessions)} sessions, {len(pending_wallets)} pending_wallets, {len(journal_data)} journal_data")
-
-        # One-time historical backfill for purchases
-        if w3 and contract:
-            logger.info("Starting historical backfill for LocationPurchased events")
-            latest_block = await w3.eth.get_block_number()
-            basic_events = await get_purchase_events(None, 0, latest_block)  # Existing for basic
-            enhanced_events = await get_purchase_events(None, 0, latest_block, event_name='LocationPurchasedEnhanced')  # Add this
-            async with pool.acquire() as conn:
-                for event in basic_events + enhanced_events:  # Combine
-                    buyer = event.args.buyer
-                    checksum_buyer = w3.to_checksum_address(buyer)
-                    if checksum_buyer in reverse_sessions:
-                        user_id = reverse_sessions[checksum_buyer]
-                        await conn.execute(
-                            "INSERT INTO purchases (user_id, wallet_address, location_id, timestamp) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
-                            user_id, checksum_buyer, event.args.locationId, event.args.timestamp
-                        )
-            logger.info(f"Backfill complete: Processed {len(basic_events)} basic and {len(enhanced_events)} enhanced events")
+        # In-memory session storage initialized at module level
+        # Blockchain data is fetched from Envio GraphQL as needed
+        logger.info(f"Using Envio GraphQL: {ENVIO_GRAPHQL_URL}")
+        logger.info("Session storage: in-memory (sessions reset on restart)")
 
         # Check and free port
         port = int(os.getenv("PORT", 8080))
@@ -3657,7 +3523,7 @@ async def startup_event():
 
 async def shutdown_event():
     start_time = time.time()
-    global application, pool
+    global application
     logger.info("Received shutdown signal")
     if application:
         try:
@@ -3666,9 +3532,6 @@ async def shutdown_event():
             logger.info(f"Application shutdown complete, took {time.time() - start_time:.2f} seconds")
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}, took {time.time() - start_time:.2f} seconds")
-    if pool:
-        await pool.close()
-        logger.info("Postgres pool closed")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -3810,28 +3673,6 @@ async def submit_tx(request: Request):
                         message = f"New activity by user {user_id} on EmpowerTours! 🧗 <a href=\"{EXPLORER_URL}/tx/{tx_hash}\">Tx: {escape_html(tx_hash)}</a>"
                         await send_notification(CHAT_HANDLE, message)
                     await application.bot.send_message(user_id, success_message, parse_mode="Markdown")
-                    entry_type = pending.get('entry_type')
-                    photo_hash = pending.get('photo_hash')
-                    if entry_type and photo_hash:
-                        if entry_type == 'journal':
-                            entry_id = await contract.functions.getJournalEntryCount().call() - 1
-                        elif entry_type == 'climb':
-                            entry_id = await contract.functions.getClimbingLocationCount().call() - 1
-                        async with pool.acquire() as conn:
-                            await conn.execute(
-                                "UPDATE media_files SET entry_id = $1 WHERE hash = $2",
-                                entry_id, photo_hash
-                            )
-                    # Add for purchaseClimbingLocation
-                    if input_data.startswith('0xd2494431'):  # purchaseClimbingLocation selector
-                        location_id = int.from_bytes(bytes.fromhex(input_data[10:]), 'big')
-                        block = await w3.eth.get_block(receipt.blockNumber)
-                        timestamp = block.timestamp
-                        async with pool.acquire() as conn:
-                            await conn.execute(
-                                "INSERT INTO purchases (user_id, wallet_address, location_id, timestamp) VALUES ($1, $2, $3, $4)",
-                                user_id, receipt['from'], location_id, timestamp
-                            )
                     if pending.get("next_tx"):
                         next_tx_data = pending["next_tx"]
                         if next_tx_data["type"] == "create_climbing_location":
