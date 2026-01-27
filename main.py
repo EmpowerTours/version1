@@ -3497,12 +3497,7 @@ async def startup_event():
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_message))
         logger.info("Command handlers registered successfully")
 
-        # Schedule monitor_events with 60-second interval
-        if application.job_queue:
-            logger.info("JobQueue available, scheduling monitor_events")
-            application.job_queue.run_repeating(monitor_events, interval=30, first=10)
-        else:
-            logger.warning("JobQueue not available, monitor_events not scheduled")
+        # monitor_events disabled - using Envio GraphQL for event indexing instead
 
         # Initialize and start application
         await application.initialize()
