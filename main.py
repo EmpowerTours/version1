@@ -1370,58 +1370,95 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
 
 async def findaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Find climbing locations using Envio indexer (fast GraphQL query instead of N+1 RPC calls)"""
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     start_time = time.time()
     logger.info(f"Received /findaclimb command from user {update.effective_user.id} in chat {update.effective_chat.id}")
-    if not w3 or not contract:
-        await update.message.reply_text("Blockchain connection unavailable. Try again later! 😅")
-        logger.info(f"/findaclimb failed due to Web3 issues, took {time.time() - start_time:.2f} seconds")
-        return
+
     try:
         global climb_cache, cache_timestamp
         current_time = time.time()
+
+        # Use cache if still valid
         if climb_cache and current_time - cache_timestamp < CACHE_TTL:
             tour_list = climb_cache
+            logger.info(f"/findaclimb using cached data ({len(tour_list)} climbs)")
         else:
-            next_location_id = await contract.functions.nextLocationId().call({'gas': 500000})
-            location_count = next_location_id - 1  # nextLocationId starts at 1
-            logger.info(f"V2 location count: {location_count} (nextLocationId: {next_location_id})")
-            if location_count == 0:
+            # Query Envio indexer via GraphQL (single query instead of N+1 RPC calls)
+            envio_url = ENVIO_GRAPHQL_URL or 'https://indexer.hyperindex.xyz/0fbe719/v1/graphql'
+
+            query = """
+                query GetClimbLocations {
+                    ClimbLocation(where: { isActive: { _eq: true }, isDisabled: { _eq: false } }, order_by: { createdAt: desc }, limit: 50) {
+                        locationId
+                        name
+                        difficulty
+                        latitude
+                        longitude
+                        photoProofIPFS
+                        priceWmon
+                        creator
+                        totalPurchases
+                        totalClimbs
+                    }
+                }
+            """
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    envio_url,
+                    json={'query': query},
+                    headers={'Content-Type': 'application/json'},
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    if response.status != 200:
+                        raise Exception(f"Envio returned status {response.status}")
+
+                    data = await response.json()
+
+                    if data.get('errors'):
+                        raise Exception(f"GraphQL errors: {data['errors']}")
+
+                    locations = data.get('data', {}).get('ClimbLocation', [])
+
+            logger.info(f"Envio returned {len(locations)} active climbing locations")
+
+            if not locations:
                 await update.message.reply_text("No climbs found. Create one with /buildaclimb! 🪨")
                 logger.info(f"/findaclimb found no climbs, took {time.time() - start_time:.2f} seconds")
                 return
-            # V2: locations are 1-indexed, go up to nextLocationId - 1
-            coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, next_location_id)]
-            locations_list = await asyncio.gather(*coros, return_exceptions=True)
+
             tour_list = []
-            for loc in locations_list:
-                if isinstance(loc, Exception):
-                    logger.error(f"Error retrieving climb: {str(loc)}")
-                    continue
-                # V2 tuple: (id, creator, creatorFid, creatorTelegramId, name, difficulty, lat, lon, photoProofIPFS, description, priceWmon, isActive)
-                if not loc[11]:  # isActive
-                    continue
-                loc_id = loc[0]
-                creator = loc[1]
-                name = loc[4]
-                difficulty = loc[5]
-                lat = loc[6] / 1000000
-                lon = loc[7] / 1000000
-                photo_info = " (has photo)" if loc[8] else ""
-                price_wmon = loc[10] / 10**18
+            for loc in locations:
+                loc_id = loc.get('locationId', '?')
+                creator = loc.get('creator', '0x0000')
+                name = loc.get('name', 'Unknown')
+                difficulty = loc.get('difficulty', 'Unknown')
+                lat = float(loc.get('latitude', 0)) / 1e6 if loc.get('latitude') else 0
+                lon = float(loc.get('longitude', 0)) / 1e6 if loc.get('longitude') else 0
+                photo_info = " 📷" if loc.get('photoProofIPFS') else ""
+                price_wmon = float(loc.get('priceWmon', 0)) / 1e18 if loc.get('priceWmon') else 0
+                purchases = loc.get('totalPurchases', 0)
+                climbs = loc.get('totalClimbs', 0)
+
                 tour_list.append(
-                    f"🧗 Climb #{loc_id} - {name}{photo_info} ({difficulty}) by [{creator[:6]}...]({EXPLORER_URL}/address/{creator})\n"
-                    f"   Location: {lat:.6f},{lon:.6f}\n"
-                    f"   Map: https://www.google.com/maps?q={lat:.6f},{lon:.6f}\n"
-                    f"   Access price: {price_wmon} WMON"
+                    f"🧗 Climb #{loc_id} - {name}{photo_info} ({difficulty})\n"
+                    f"   Creator: [{creator[:6]}...]({EXPLORER_URL}/address/{creator})\n"
+                    f"   📍 Map: https://www.google.com/maps?q={lat:.6f},{lon:.6f}\n"
+                    f"   💰 Access: {price_wmon:.2f} WMON | 👥 {purchases} buyers | 🏔️ {climbs} climbs"
                 )
+
+            # Update cache
             climb_cache = tour_list
             cache_timestamp = current_time
+
         if not tour_list:
             await update.message.reply_text("No climbs found. Create one with /buildaclimb! 🪨")
         else:
             await update.message.reply_text("\n\n".join(tour_list), parse_mode="Markdown")
-        logger.info(f"/findaclimb retrieved {len(tour_list)} climbs, took {time.time() - start_time:.2f} seconds")
+
+        logger.info(f"/findaclimb retrieved {len(tour_list)} climbs via Envio, took {time.time() - start_time:.2f} seconds")
+
     except Exception as e:
         logger.error(f"Unexpected error in /findaclimb: {str(e)}")
         error_msg = html.escape(str(e))
