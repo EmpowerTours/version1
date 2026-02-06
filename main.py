@@ -362,7 +362,7 @@ CLIMBING_V2_ABI = [
     },
     {
         "inputs": [],
-        "name": "locationCount",
+        "name": "nextLocationId",
         "outputs": [
             {"internalType": "uint256", "name": "", "type": "uint256"}
         ],
@@ -1025,10 +1025,11 @@ async def buildaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"/buildaclimb failed due to checksum error, took {time.time() - start_time:.2f} seconds")
             return
 
-        # Check for duplicate climb name (V2: locationCount + locations(i))
+        # Check for duplicate climb name (V2: nextLocationId + locations(i))
         try:
-            location_count = await contract.functions.locationCount().call({'gas': 500000})
-            coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, location_count + 1)]
+            next_location_id = await contract.functions.nextLocationId().call({'gas': 500000})
+            location_count = next_location_id - 1  # nextLocationId starts at 1
+            coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, next_location_id)]
             locations_list = await asyncio.gather(*coros, return_exceptions=True)
             for loc in locations_list:
                 if isinstance(loc, Exception):
@@ -1382,14 +1383,15 @@ async def findaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if climb_cache and current_time - cache_timestamp < CACHE_TTL:
             tour_list = climb_cache
         else:
-            location_count = await contract.functions.locationCount().call({'gas': 500000})
-            logger.info(f"V2 location count: {location_count}")
+            next_location_id = await contract.functions.nextLocationId().call({'gas': 500000})
+            location_count = next_location_id - 1  # nextLocationId starts at 1
+            logger.info(f"V2 location count: {location_count} (nextLocationId: {next_location_id})")
             if location_count == 0:
                 await update.message.reply_text("No climbs found. Create one with /buildaclimb! 🪨")
                 logger.info(f"/findaclimb found no climbs, took {time.time() - start_time:.2f} seconds")
                 return
-            # V2: locations are 1-indexed
-            coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, location_count + 1)]
+            # V2: locations are 1-indexed, go up to nextLocationId - 1
+            coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, next_location_id)]
             locations_list = await asyncio.gather(*coros, return_exceptions=True)
             tour_list = []
             for loc in locations_list:
