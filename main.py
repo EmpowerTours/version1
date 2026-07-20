@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response, FileResponse
 from contextlib import asynccontextmanager
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 import aiohttp
@@ -570,7 +570,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /ping command from user {update.effective_user.id} in chat {update.effective_chat.id}")
     try:
         webhook_ok = await check_webhook()
-        status = "Webhook OK" if webhook_ok else "Webhook failed, using polling"
+        status = "Webhook OK" if webhook_ok else "Webhook not set — run /forcewebhook"
         await update.message.reply_text(f"Pong! Bot is running. {status}. Try /start or /buildaclimb.")
         logger.info(f"Sent /ping response to user {update.effective_user.id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
@@ -607,7 +607,7 @@ async def forcewebhook(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if webhook_success:
             await update.message.reply_text("Webhook reset successful!")
         else:
-            await update.message.reply_text("Webhook reset failed. Falling back to polling. Check logs for details.")
+            await update.message.reply_text("Webhook reset failed. Check logs and try again.")
         logger.info(f"Sent /forcewebhook response to user {update.effective_user.id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
         logger.error(f"Error in /forcewebhook: {str(e)}, took {time.time() - start_time:.2f} seconds")
@@ -1362,8 +1362,48 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
         support_link = '<a href="https://t.me/empowertourschat">EmpowerTours Chat</a>'
         await update.message.reply_text(f"Error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
 
+async def fetch_climbs_from_contract() -> list:
+    """Fallback: read active climbs directly from ClimbingLocationsV2 via RPC when Envio is down.
+
+    Returns dicts shaped like the Envio ClimbLocation rows so the /findaclimb
+    formatter can consume either source. On-chain counts (buyers/climbs) aren't
+    tracked by the contract, so they come back as None and are omitted from output.
+    """
+    if not w3 or not contract:
+        raise Exception("Web3/contract not initialized")
+    next_id = await contract.functions.nextLocationId().call({'gas': 500000})
+    if next_id <= 1:
+        return []
+    coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, next_id)]
+    results = await asyncio.gather(*coros, return_exceptions=True)
+    locations = []
+    for loc in results:
+        if isinstance(loc, Exception):
+            logger.warning(f"Skipping location read error: {loc}")
+            continue
+        # tuple: (id, creator, creatorFid, creatorTelegramId, name, difficulty,
+        #         latitude, longitude, photoProofIPFS, description, priceWmon, isActive)
+        if not loc[11]:  # isActive
+            continue
+        locations.append({
+            'locationId': loc[0],
+            'creator': loc[1],
+            'name': loc[4],
+            'difficulty': loc[5],
+            'latitude': loc[6],
+            'longitude': loc[7],
+            'photoProofIPFS': loc[8],
+            'priceWmon': loc[10],
+            'totalPurchases': None,
+            'totalClimbs': None,
+        })
+    locations.sort(key=lambda x: x['locationId'], reverse=True)  # newest first
+    return locations[:50]
+
+
 async def findaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Find climbing locations using Envio indexer (fast GraphQL query instead of N+1 RPC calls)"""
+    """Find climbing locations. Tries the Envio indexer first (fast), falls back to
+    direct contract reads via RPC when Envio is unavailable."""
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     start_time = time.time()
     logger.info(f"Received /findaclimb command from user {update.effective_user.id} in chat {update.effective_chat.id}")
@@ -1377,44 +1417,52 @@ async def findaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tour_list = climb_cache
             logger.info(f"/findaclimb using cached data ({len(tour_list)} climbs)")
         else:
-            # Query Envio indexer via GraphQL (single query instead of N+1 RPC calls)
-            envio_url = ENVIO_GRAPHQL_URL or 'https://indexer.hyperindex.xyz/0fbe719/v1/graphql'
+            locations = None
+            source = "envio"
 
-            query = """
-                query GetClimbLocations {
-                    ClimbLocation(where: { isActive: { _eq: true }, isDisabled: { _eq: false } }, order_by: { createdAt: desc }, limit: 50) {
-                        locationId
-                        name
-                        difficulty
-                        latitude
-                        longitude
-                        photoProofIPFS
-                        priceWmon
-                        creator
-                        totalPurchases
-                        totalClimbs
+            # Try the Envio indexer first (single fast GraphQL query)
+            if ENVIO_GRAPHQL_URL:
+                query = """
+                    query GetClimbLocations {
+                        ClimbLocation(where: { isActive: { _eq: true }, isDisabled: { _eq: false } }, order_by: { createdAt: desc }, limit: 50) {
+                            locationId
+                            name
+                            difficulty
+                            latitude
+                            longitude
+                            photoProofIPFS
+                            priceWmon
+                            creator
+                            totalPurchases
+                            totalClimbs
+                        }
                     }
-                }
-            """
+                """
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            ENVIO_GRAPHQL_URL,
+                            json={'query': query},
+                            headers={'Content-Type': 'application/json'},
+                            timeout=aiohttp.ClientTimeout(total=10)
+                        ) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                if data.get('errors'):
+                                    logger.warning(f"Envio GraphQL errors, falling back to contract: {data['errors']}")
+                                else:
+                                    locations = data.get('data', {}).get('ClimbLocation', [])
+                            else:
+                                logger.warning(f"Envio returned status {response.status}, falling back to contract")
+                except Exception as e:
+                    logger.warning(f"Envio query failed ({e}), falling back to contract")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    envio_url,
-                    json={'query': query},
-                    headers={'Content-Type': 'application/json'},
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status != 200:
-                        raise Exception(f"Envio returned status {response.status}")
+            # Fallback: read directly from the contract when Envio is unavailable
+            if locations is None:
+                source = "contract"
+                locations = await fetch_climbs_from_contract()
 
-                    data = await response.json()
-
-                    if data.get('errors'):
-                        raise Exception(f"GraphQL errors: {data['errors']}")
-
-                    locations = data.get('data', {}).get('ClimbLocation', [])
-
-            logger.info(f"Envio returned {len(locations)} active climbing locations")
+            logger.info(f"Retrieved {len(locations)} active climbs via {source}")
 
             if not locations:
                 await update.message.reply_text("No climbs found. Create one with /buildaclimb! 🪨")
@@ -1431,14 +1479,16 @@ async def findaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 lon = float(loc.get('longitude', 0)) / 1e6 if loc.get('longitude') else 0
                 photo_info = " 📷" if loc.get('photoProofIPFS') else ""
                 price_wmon = float(loc.get('priceWmon', 0)) / 1e18 if loc.get('priceWmon') else 0
-                purchases = loc.get('totalPurchases', 0)
-                climbs = loc.get('totalClimbs', 0)
+                purchases = loc.get('totalPurchases')
+                climbs = loc.get('totalClimbs')
+                # Counts only exist on the Envio path; omit them on the contract fallback
+                stats = f" | 👥 {purchases} buyers | 🏔️ {climbs} climbs" if purchases is not None else ""
 
                 tour_list.append(
                     f"🧗 Climb #{loc_id} - {name}{photo_info} ({difficulty})\n"
                     f"   Creator: [{creator[:6]}...]({EXPLORER_URL}/address/{creator})\n"
                     f"   📍 Map: https://www.google.com/maps?q={lat:.6f},{lon:.6f}\n"
-                    f"   💰 Access: {price_wmon:.2f} WMON | 👥 {purchases} buyers | 🏔️ {climbs} climbs"
+                    f"   💰 Access: {price_wmon:.2f} WMON{stats}"
                 )
 
             # Update cache
@@ -1928,18 +1978,31 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
 
 async def log_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle plain (non-command) text. Stay quiet in group chats so we don't spam;
+    give a gentle nudge in private chats without leaking debug internals to users."""
     start_time = time.time()
-    device_info = (
-        f"via_bot={update.message.via_bot.id if update.message.via_bot else 'none'}, "
-        f"chat_type={update.message.chat.type}, "
-        f"platform={getattr(update.message.via_bot, 'platform', 'unknown')}"
-    )
-    logger.info(f"Received text message from user {update.effective_user.id} in chat {update.effective_chat.id}: {update.message.text}, {device_info}")
-    await update.message.reply_text(
-        f"Received message: '{update.message.text}'. Use a valid command like /start or /tutorial. 😅\nDebug: {device_info}"
-    )
+    chat_type = update.message.chat.type
+    logger.info(f"Received text message from user {update.effective_user.id} in chat {update.effective_chat.id} ({chat_type}): {update.message.text}")
+    # Only nudge in 1:1 chats; never reply to arbitrary text in groups
+    if chat_type == "private":
+        await update.message.reply_text(
+            "I only understand commands. Try /help to see what I can do. 🧗"
+        )
     logger.info(f"Processed non-command text message, took {time.time() - start_time:.2f} seconds")
-    
+
+
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Catch unrecognized /commands with a helpful nudge instead of a raw webhook status."""
+    start_time = time.time()
+    cmd = update.message.text if update.message else "?"
+    logger.info(f"Unknown command '{cmd}' from user {update.effective_user.id} in chat {update.effective_chat.id}")
+    if update.message.chat.type == "private":
+        await update.message.reply_text(
+            f"Unknown command. Try /help to see all commands. 🧗"
+        )
+    logger.info(f"Processed unknown command, took {time.time() - start_time:.2f} seconds")
+
+
 async def get_session(user_id):
     return sessions.get(user_id)
 
@@ -2052,7 +2115,7 @@ async def startup_event():
         application.add_handler(MessageHandler(filters.Regex(r'^0x[a-fA-F0-9]{64}$'), handle_tx_hash))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(filters.LOCATION, handle_location))
-        application.add_handler(MessageHandler(filters.COMMAND, debug_command))
+        application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, log_message))
         logger.info("Command handlers registered successfully")
 
@@ -2061,6 +2124,30 @@ async def startup_event():
         # Initialize and start application
         await application.initialize()
         logger.info("Application initialized via initialize()")
+
+        # Register the command menu so users get the "/" autocomplete + Menu button
+        try:
+            await application.bot.set_my_commands([
+                BotCommand("start", "Welcome + quick start"),
+                BotCommand("tutorial", "Full setup guide"),
+                BotCommand("connectwallet", "Link your Monad wallet"),
+                BotCommand("findaclimb", "Browse climbing locations"),
+                BotCommand("buildaclimb", "Create a climb (35 WMON)"),
+                BotCommand("viewclimb", "View a climb's details"),
+                BotCommand("purchaseclimb", "Buy access to a climb"),
+                BotCommand("mypurchases", "Your purchased climbs"),
+                BotCommand("journal", "Log a climb (earn NFT + TOURS)"),
+                BotCommand("mynfts", "View your NFTs"),
+                BotCommand("viewnft", "View an NFT's details"),
+                BotCommand("balance", "Check MON / WMON / TOURS"),
+                BotCommand("wrapmon", "Convert MON to WMON"),
+                BotCommand("unwrapmon", "Convert WMON to MON"),
+                BotCommand("help", "List all commands"),
+                BotCommand("ping", "Check bot status"),
+            ])
+            logger.info("Bot command menu registered via set_my_commands")
+        except Exception as e:
+            logger.warning(f"Could not set command menu: {e}")
 
         # Set webhook with increased max_connections.
         # Webhook-only: no polling fallback. Polling (getUpdates) makes Telegram
