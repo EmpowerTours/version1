@@ -506,16 +506,9 @@ async def reset_webhook():
         for attempt in range(1, retries + 1):
             try:
                 logger.info(f"Webhook reset attempt {attempt}/{retries}")
-                async with session.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook",
-                    json={"drop_pending_updates": True}
-                ) as response:
-                    status = response.status
-                    delete_data = await response.json()
-                    logger.info(f"Webhook cleared: status={status}, response={delete_data}")
-                    if not delete_data.get("ok"):
-                        logger.error(f"Failed to delete webhook: status={status}, response={delete_data}")
-                        continue
+                # setWebhook overwrites any existing webhook atomically, so we do
+                # NOT deleteWebhook first — that would leave a window with no
+                # webhook (bot deaf) and drops nothing we need to keep.
                 webhook_url = f"{API_BASE_URL.rstrip('/')}/webhook"
                 logger.info(f"Setting webhook to {webhook_url}")
                 async with session.post(
@@ -2069,16 +2062,19 @@ async def startup_event():
         await application.initialize()
         logger.info("Application initialized via initialize()")
 
-        # Set webhook with increased max_connections
+        # Set webhook with increased max_connections.
+        # Webhook-only: no polling fallback. Polling (getUpdates) makes Telegram
+        # DELETE the webhook, which silently breaks message delivery for this and
+        # any co-running instance. On Railway we always have a public URL, so if
+        # the webhook fails to set we keep the app up and rely on retries /
+        # /forcewebhook rather than clobbering the webhook with polling.
         logger.info("Forcing webhook reset on startup")
         webhook_success = await reset_webhook()
         if not webhook_success:
-            logger.info("Webhook failed or not set, starting polling")
-            await application.start()
-            await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            logger.error("Webhook set failed on startup; NOT starting polling. Use /forcewebhook or check logs.")
         else:
-            logger.info("Webhook set successfully, starting application")
-            await application.start()
+            logger.info("Webhook set successfully")
+        await application.start()
         webhook_info = await check_webhook()
         logger.info(f"Webhook verification: {webhook_info}")
         logger.info(f"Bot startup complete, took {time.time() - start_time:.2f} seconds")
