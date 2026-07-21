@@ -335,7 +335,7 @@
                 </div>
                 <div class="instruction-item">
                     <span class="instruction-num">3</span>
-                    <span class="instruction-text">After connecting, use <strong>/createprofile</strong>, <strong>/buildaclimb</strong>, or <strong>/buyTours</strong> in Telegram</span>
+                    <span class="instruction-text">After connecting, use <strong>/findaclimb</strong>, <strong>/buildaclimb</strong>, or <strong>/balance</strong> in Telegram</span>
                 </div>
             </div>
 
@@ -361,7 +361,7 @@
         let pollingInterval = null;
         const MONAD_CHAIN_ID = '0x8f';
         const MONAD_CHAIN_ID_DECIMAL = 143;
-        const MONAD_RPC = 'https://monad-mainnet.g.alchemy.com/v2/demo';
+        const MONAD_RPC = 'https://rpc.monad.xyz';
 
         function setStatus(message, isConnected = false) {
             statusDiv.innerHTML = message;
@@ -516,7 +516,8 @@
                         console.log('Transaction signed, hash:', txHash);
                         await submitTransaction(txHash);
                     } catch (error) {
-                        errorDiv.textContent = `Transaction failed: ${error.message}`;
+                        errorDiv.textContent = `Transaction failed or rejected: ${error.message}. Re-run the command in Telegram to try again.`;
+                        setStatus('Ready — re-run the command in Telegram to retry.');
                         console.error('Error signing transaction:', error);
                         startPolling();
                     }
