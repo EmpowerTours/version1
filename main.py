@@ -546,8 +546,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     logger.info(f"Received /start command from user {update.effective_user.id} in chat {update.effective_chat.id}")
     try:
+        # Show current wallet connection status so users always know where they stand
+        user_id = str(update.effective_user.id)
+        session = await get_session(user_id)
+        wallet = session.get("wallet_address") if session else None
+        if wallet:
+            status_line = f"✅ Wallet connected: <code>{wallet[:6]}...{wallet[-4:]}</code>\n\n"
+        else:
+            status_line = "🔌 No wallet connected yet — start with /connectwallet\n\n"
         welcome_message = (
             f"Welcome to EmpowerTours! 🧗\n\n"
+            f"{status_line}"
             f"Discover and share climbing locations on Monad.\n\n"
             f"<b>Get Started:</b>\n"
             f"1. /connectwallet - Link your wallet\n"
