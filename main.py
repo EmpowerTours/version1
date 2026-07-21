@@ -542,6 +542,21 @@ async def reset_webhook():
         webhook_failed = True
         return False
 
+async def webhook_health_job(context: ContextTypes.DEFAULT_TYPE):
+    """Periodic self-heal: if the webhook is ever missing/incorrect (e.g. cleared
+    during a deploy overlap or by another process using the token), re-set it.
+    This makes message delivery recover on its own within a couple minutes."""
+    try:
+        ok = await check_webhook()
+        if not ok:
+            logger.warning("Webhook health check FAILED — webhook missing/incorrect, re-setting")
+            success = await reset_webhook()
+            logger.info(f"Webhook self-heal {'succeeded' if success else 'FAILED'}")
+        else:
+            logger.debug("Webhook health check OK")
+    except Exception as e:
+        logger.error(f"Webhook health job error: {e}")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     start_time = time.time()
@@ -2285,6 +2300,15 @@ async def startup_event():
         await application.start()
         webhook_info = await check_webhook()
         logger.info(f"Webhook verification: {webhook_info}")
+
+        # Self-healing webhook: re-check every 2 min and re-set if missing.
+        # Guards against deploy-overlap races or anything else clearing the webhook.
+        if application.job_queue:
+            application.job_queue.run_repeating(webhook_health_job, interval=120, first=30)
+            logger.info("Scheduled webhook self-heal job (every 120s, first run in 30s)")
+        else:
+            logger.warning("job_queue unavailable — webhook self-heal disabled")
+
         logger.info(f"Bot startup complete, took {time.time() - start_time:.2f} seconds")
 
     except Exception as e:
