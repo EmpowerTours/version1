@@ -18,6 +18,7 @@ import html
 import uvicorn
 import socket
 import json
+import sqlite3
 import subprocess
 from datetime import datetime
 from tenacity import retry, wait_exponential, stop_after_attempt  # Added for retries
@@ -758,6 +759,26 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Added user {user_id} to pending_wallets: {pending_wallets.get(user_id)}")
     except Exception as e:
         logger.error(f"Error in /connectwallet for user {user_id}: {str(e)}, took {time.time() - start_time:.2f} seconds")
+        error_msg = html.escape(str(e))
+        support_link = '<a href="https://t.me/empowertourschat">EmpowerTours Chat</a>'
+        await update.message.reply_text(f"Error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
+
+async def disconnect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Disconnect the currently linked wallet - /disconnect"""
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    start_time = time.time()
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /disconnect from user {user_id} in chat {update.effective_chat.id}")
+    try:
+        session = await get_session(user_id)
+        if not session or not session.get("wallet_address"):
+            await update.message.reply_text("No wallet is connected. Use /connectwallet to link one. 🔌")
+            return
+        await delete_session(user_id)
+        await update.message.reply_text("Wallet disconnected. Use /connectwallet to link a different one. 👋")
+        logger.info(f"/disconnect done for user {user_id}, took {time.time() - start_time:.2f} seconds")
+    except Exception as e:
+        logger.error(f"Error in /disconnect for user {user_id}: {str(e)}")
         error_msg = html.escape(str(e))
         support_link = '<a href="https://t.me/empowertourschat">EmpowerTours Chat</a>'
         await update.message.reply_text(f"Error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
@@ -2012,6 +2033,72 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Processed unknown command, took {time.time() - start_time:.2f} seconds")
 
 
+# --- Persistent session storage (survives restarts via a Railway volume) ---
+# Sessions are just telegram_user_id -> wallet_address (all public data). We keep
+# the in-memory dicts as a fast cache and write through to a SQLite file that
+# lives on a mounted volume, so a redeploy/restart no longer disconnects users.
+DATA_DIR = os.getenv("DATA_DIR", "/data")
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    _probe = os.path.join(DATA_DIR, ".write_probe")
+    with open(_probe, "w") as _f:
+        _f.write("ok")
+    os.remove(_probe)
+except Exception as _e:
+    logger.warning(f"DATA_DIR '{DATA_DIR}' not writable ({_e}); sessions will NOT persist across restarts. Mount a Railway volume and set DATA_DIR.")
+    DATA_DIR = "."
+SESSIONS_DB_PATH = os.path.join(DATA_DIR, "sessions.db")
+logger.info(f"Session DB path: {SESSIONS_DB_PATH}")
+
+
+def _init_sessions_db():
+    conn = sqlite3.connect(SESSIONS_DB_PATH)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS sessions ("
+            "user_id TEXT PRIMARY KEY, wallet_address TEXT NOT NULL)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _load_sessions_from_db():
+    """Populate the in-memory caches from disk on startup. Returns row count."""
+    conn = sqlite3.connect(SESSIONS_DB_PATH)
+    try:
+        rows = conn.execute("SELECT user_id, wallet_address FROM sessions").fetchall()
+    finally:
+        conn.close()
+    for user_id, wallet_address in rows:
+        sessions[user_id] = {"wallet_address": wallet_address}
+        if wallet_address:
+            reverse_sessions[wallet_address] = user_id
+    return len(rows)
+
+
+def _persist_session(user_id, wallet_address):
+    conn = sqlite3.connect(SESSIONS_DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO sessions (user_id, wallet_address) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET wallet_address=excluded.wallet_address",
+            (user_id, wallet_address),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _delete_session_row(user_id):
+    conn = sqlite3.connect(SESSIONS_DB_PATH)
+    try:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 async def get_session(user_id):
     return sessions.get(user_id)
 
@@ -2020,6 +2107,23 @@ async def set_session(user_id, wallet_address):
     sessions[user_id] = {"wallet_address": wallet_address}
     if wallet_address:
         reverse_sessions[wallet_address] = user_id
+        try:
+            _persist_session(user_id, wallet_address)
+        except Exception as e:
+            logger.error(f"Failed to persist session for {user_id}: {e}")
+
+async def delete_session(user_id):
+    """Disconnect a wallet: drop it from memory caches and the persistent DB."""
+    global sessions, reverse_sessions
+    sess = sessions.pop(user_id, None)
+    if sess:
+        wa = sess.get("wallet_address")
+        if wa and reverse_sessions.get(wa) == user_id:
+            del reverse_sessions[wa]
+    try:
+        _delete_session_row(user_id)
+    except Exception as e:
+        logger.error(f"Failed to delete session row for {user_id}: {e}")
 
 async def get_pending_wallet(user_id):
     return pending_wallets.get(user_id)
@@ -2049,10 +2153,16 @@ async def startup_event():
     start_time = time.time()
     global application, webhook_failed, sessions, reverse_sessions, pending_wallets, journal_data
     try:
-        # In-memory session storage initialized at module level
+        # Persistent session storage: init the SQLite DB and load existing
+        # wallet connections into the in-memory cache so restarts don't log users out.
+        try:
+            _init_sessions_db()
+            loaded = _load_sessions_from_db()
+            logger.info(f"Session storage: SQLite at {SESSIONS_DB_PATH} ({loaded} sessions restored)")
+        except Exception as e:
+            logger.error(f"Failed to init/load session DB ({e}); continuing with in-memory only")
         # Blockchain data is fetched from Envio GraphQL as needed
         logger.info(f"Using Envio GraphQL: {ENVIO_GRAPHQL_URL}")
-        logger.info("Session storage: in-memory (sessions reset on restart)")
 
         # Check and free port
         port = int(os.getenv("PORT", 8080))
@@ -2105,6 +2215,7 @@ async def startup_event():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("tutorial", tutorial))
         application.add_handler(CommandHandler("connectwallet", connect_wallet))
+        application.add_handler(CommandHandler("disconnect", disconnect_wallet))
         application.add_handler(CommandHandler("help", help))
         application.add_handler(CommandHandler("buildaclimb", buildaclimb))
         application.add_handler(CommandHandler("findaclimb", findaclimb))
@@ -2140,6 +2251,7 @@ async def startup_event():
                 BotCommand("start", "Welcome + quick start"),
                 BotCommand("tutorial", "Full setup guide"),
                 BotCommand("connectwallet", "Link your Monad wallet"),
+                BotCommand("disconnect", "Unlink your wallet"),
                 BotCommand("findaclimb", "Browse climbing locations"),
                 BotCommand("buildaclimb", "Create a climb (35 WMON)"),
                 BotCommand("viewclimb", "View a climb's details"),
