@@ -1876,9 +1876,16 @@ async def mynfts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if access_badges:
             message += f"Access Badges ({len(access_badges)}):\n"
-            for token_id in access_badges[:10]:  # Limit to 10
+            badge_ids = list(access_badges[:10])  # Limit to 10
+            # Fire all reads concurrently (1 wall-clock round-trip instead of N)
+            badges = await asyncio.gather(
+                *[contract.functions.getAccessBadge(int(t)).call({'gas': 500000}) for t in badge_ids],
+                return_exceptions=True,
+            )
+            for token_id, badge in zip(badge_ids, badges):
+                if isinstance(badge, Exception):
+                    continue
                 # getAccessBadge tuple: [0]locationId [1]holder [2]purchasedAt
-                badge = await contract.functions.getAccessBadge(int(token_id)).call({'gas': 500000})
                 message += f"  #{token_id} - Location #{badge[0]}\n"
             if len(access_badges) > 10:
                 message += f"  ... and {len(access_badges) - 10} more\n"
@@ -1886,9 +1893,15 @@ async def mynfts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if climb_proofs:
             message += f"Climb Proofs ({len(climb_proofs)}):\n"
-            for token_id in climb_proofs[:10]:  # Limit to 10
+            proof_ids = list(climb_proofs[:10])  # Limit to 10
+            proofs = await asyncio.gather(
+                *[contract.functions.getClimbProof(int(t)).call({'gas': 500000}) for t in proof_ids],
+                return_exceptions=True,
+            )
+            for token_id, proof in zip(proof_ids, proofs):
+                if isinstance(proof, Exception):
+                    continue
                 # getClimbProof tuple: [0]locationId [1]climber [2]photoIPFS [3]entryText [4]reward [5]climbedAt
-                proof = await contract.functions.getClimbProof(int(token_id)).call({'gas': 500000})
                 tours = int(proof[4]) / 10**18
                 message += f"  #{token_id} - Location #{proof[0]} (+{tours:.2f} TOURS)\n"
             if len(climb_proofs) > 10:
@@ -1988,9 +2001,15 @@ async def mypurchases(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await update.message.reply_text("Your purchased climbs:")
-        for location_id in location_ids:
+        # Fire all location reads concurrently (1 wall-clock round-trip instead of N)
+        climbs = await asyncio.gather(
+            *[contract.functions.getLocation(int(lid)).call({'gas': 500000}) for lid in location_ids],
+            return_exceptions=True,
+        )
+        for location_id, climb in zip(location_ids, climbs):
+            if isinstance(climb, Exception):
+                continue
             # getLocation tuple: [1]creator [4]name [5]difficulty [6]lat [7]lon [10]priceWmon
-            climb = await contract.functions.getLocation(int(location_id)).call({'gas': 500000})
             lat, lon = climb[6] / 10**6, climb[7] / 10**6
             message = f"🏔️ #{location_id} {escape_html(climb[4])} ({escape_html(climb[5])})\n"
             message += f"   Creator: <a href=\"{EXPLORER_URL}/address/{climb[1]}\">{climb[1][:6]}...</a>\n"
