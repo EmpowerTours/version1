@@ -372,10 +372,77 @@ CLIMBING_V2_ABI = [
     },
     {
         "inputs": [],
-        "name": "locationCreationFee",
+        "name": "LOCATION_CREATION_COST",
         "outputs": [
             {"internalType": "uint256", "name": "", "type": "uint256"}
         ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "uint256", "name": "locationId", "type": "uint256"}],
+        "name": "getLocation",
+        "outputs": [{"components": [
+            {"internalType": "uint256", "name": "id", "type": "uint256"},
+            {"internalType": "address", "name": "creator", "type": "address"},
+            {"internalType": "uint256", "name": "creatorFid", "type": "uint256"},
+            {"internalType": "uint256", "name": "creatorTelegramId", "type": "uint256"},
+            {"internalType": "string", "name": "name", "type": "string"},
+            {"internalType": "string", "name": "difficulty", "type": "string"},
+            {"internalType": "int256", "name": "latitude", "type": "int256"},
+            {"internalType": "int256", "name": "longitude", "type": "int256"},
+            {"internalType": "string", "name": "photoProofIPFS", "type": "string"},
+            {"internalType": "string", "name": "description", "type": "string"},
+            {"internalType": "uint256", "name": "priceWmon", "type": "uint256"},
+            {"internalType": "uint256", "name": "createdAt", "type": "uint256"},
+            {"internalType": "bool", "name": "isActive", "type": "bool"}
+        ], "internalType": "tuple", "name": "", "type": "tuple"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
+        "name": "getUserPurchases",
+        "outputs": [{"internalType": "uint256[]", "name": "", "type": "uint256[]"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
+        "name": "getUserAccessBadges",
+        "outputs": [{"internalType": "uint256[]", "name": "", "type": "uint256[]"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
+        "name": "getUserClimbProofs",
+        "outputs": [{"internalType": "uint256[]", "name": "", "type": "uint256[]"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
+        "name": "getAccessBadge",
+        "outputs": [{"components": [
+            {"internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"internalType": "address", "name": "holder", "type": "address"},
+            {"internalType": "uint256", "name": "purchasedAt", "type": "uint256"}
+        ], "internalType": "tuple", "name": "", "type": "tuple"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
+        "name": "getClimbProof",
+        "outputs": [{"components": [
+            {"internalType": "uint256", "name": "locationId", "type": "uint256"},
+            {"internalType": "address", "name": "climber", "type": "address"},
+            {"internalType": "string", "name": "photoIPFS", "type": "string"},
+            {"internalType": "string", "name": "entryText", "type": "string"},
+            {"internalType": "uint256", "name": "reward", "type": "uint256"},
+            {"internalType": "uint256", "name": "climbedAt", "type": "uint256"}
+        ], "internalType": "tuple", "name": "", "type": "tuple"}],
         "stateMutability": "view",
         "type": "function"
     },
@@ -846,8 +913,8 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         checksum_address = w3.to_checksum_address(wallet_address)
 
-        # Check if user has any purchased climbs
-        purchases = await get_user_purchases(checksum_address)
+        # Check if user has any purchased climbs (read purchased location IDs from contract)
+        purchases = await contract.functions.getUserPurchases(checksum_address).call({'gas': 500000})
         if not purchases:
             await update.message.reply_text(
                 "You need to purchase a climbing location first!\n\n"
@@ -859,8 +926,7 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not context.args or len(context.args) < 1:
             # Show purchased locations
             message = "Usage: /journal [location_id]\n\nYour purchased climbs:\n"
-            for purchase in purchases[:10]:
-                loc_id = purchase.get("locationId", "?")
+            for loc_id in purchases[:10]:
                 message += f"  - Location #{loc_id}\n"
             message += "\nSelect a location ID and send the photo of your climb."
             await update.message.reply_text(message)
@@ -873,7 +939,7 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Check if user has purchased this specific location
-        has_access = any(p.get("locationId") == str(location_id) for p in purchases)
+        has_access = location_id in [int(p) for p in purchases]
         if not has_access:
             await update.message.reply_text(
                 f"You don't have access to location #{location_id}.\n"
@@ -992,14 +1058,27 @@ async def viewclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"/viewclimb failed due to insufficient args, took {time.time() - start_time:.2f} seconds")
             return
         loc_id = int(context.args[0])
-        location = await contract.functions.getClimbingLocation(loc_id).call({'gas': 500000})
-        if not location[1]:
+        # getLocation tuple: [0]id [1]creator [2]creatorFid [3]creatorTelegramId
+        # [4]name [5]difficulty [6]lat [7]lon [8]photoIPFS [9]desc [10]priceWmon
+        # [11]createdAt [12]isActive. Reverts ("Location doesn't exist") for a bad id.
+        try:
+            location = await contract.functions.getLocation(loc_id).call({'gas': 500000})
+        except Exception:
             await update.message.reply_text("Climb not found.")
-            logger.info(f"/viewclimb failed: climb not found, took {time.time() - start_time:.2f} seconds")
+            logger.info(f"/viewclimb: climb {loc_id} not found, took {time.time() - start_time:.2f} seconds")
             return
-        photo_hash = location[5]
-        has_photo = photo_hash != ''
-        message = f"🧗 Climb ID: {loc_id} - {location[1]} ({location[2]}) by [{location[0][:6]}...]({EXPLORER_URL}/address/{location[0]})\n   Location: {location[3]/1000000:.6f}, {location[4]/1000000:.6f}\n   Map: https://www.google.com/maps?q={location[3]/1000000:.6f},{location[4]/1000000:.6f}\n   Photo: {'Yes' if has_photo else 'No'}\n   Purchases: {location[10]}\n   Created: {datetime.fromtimestamp(location[6]).strftime('%Y-%m-%d %H:%M:%S')}"
+        creator, name_, difficulty_ = location[1], location[4], location[5]
+        lat, lon = location[6] / 1000000, location[7] / 1000000
+        has_photo = location[8] != ''
+        price_wmon = location[10] / 1e18
+        message = (
+            f"🧗 Climb ID: {loc_id} - {name_} ({difficulty_}) by [{creator[:6]}...]({EXPLORER_URL}/address/{creator})\n"
+            f"   Location: {lat:.6f}, {lon:.6f}\n"
+            f"   Map: https://www.google.com/maps?q={lat:.6f},{lon:.6f}\n"
+            f"   Photo: {'Yes' if has_photo else 'No'}\n"
+            f"   💰 Access price: {price_wmon:.2f} WMON\n"
+            f"   Created: {datetime.fromtimestamp(location[11]).strftime('%Y-%m-%d %H:%M:%S')}"
+        )
         await update.message.reply_text(message, parse_mode="Markdown")
         logger.info(f"/viewclimb details for {loc_id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
@@ -1191,7 +1270,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Check WMON balance and allowance for location creation fee
             try:
-                location_fee = await contract.functions.locationCreationFee().call({'gas': 500000})
+                location_fee = await contract.functions.LOCATION_CREATION_COST().call({'gas': 500000})
                 wmon_balance = await wmon_contract.functions.balanceOf(checksum_address).call({'gas': 500000})
                 logger.info(f"WMON balance for {checksum_address}: {wmon_balance / 10**18} WMON, fee: {location_fee / 10**18} WMON")
                 if wmon_balance < location_fee:
@@ -1336,8 +1415,8 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"/purchaseclimb failed due to missing wallet, took {time.time() - start_time:.2f} seconds")
             return
         checksum_address = w3.to_checksum_address(wallet_address)
-        # Check if already purchased (via Envio)
-        already_purchased = await has_purchased_climb(checksum_address, location_id)
+        # Check if already purchased (read directly from contract)
+        already_purchased = await contract.functions.hasPurchased(location_id, checksum_address).call({'gas': 500000})
         if already_purchased:
             await update.message.reply_text(f"You have already purchased climb #{location_id}. Check /mypurchases! 😅")
             logger.info(f"/purchaseclimb failed: already purchased climb {location_id} for user {user_id}, took {time.time() - start_time:.2f} seconds")
@@ -1781,9 +1860,9 @@ async def mynfts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         checksum_address = w3.to_checksum_address(wallet_address)
 
-        # Get Access Badges (purchases) and Climb Proofs (journals)
-        access_badges = await get_user_purchases(checksum_address)
-        climb_proofs = await get_user_climb_proofs(checksum_address)
+        # Read NFT token IDs directly from the contract (no indexer needed)
+        access_badges = await contract.functions.getUserAccessBadges(checksum_address).call({'gas': 500000})
+        climb_proofs = await contract.functions.getUserClimbProofs(checksum_address).call({'gas': 500000})
 
         if not access_badges and not climb_proofs:
             await update.message.reply_text(
@@ -1797,21 +1876,21 @@ async def mynfts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if access_badges:
             message += f"Access Badges ({len(access_badges)}):\n"
-            for badge in access_badges[:10]:  # Limit to 10
-                token_id = badge.get("tokenId", "?")
-                location_id = badge.get("locationId", "?")
-                message += f"  #{token_id} - Location #{location_id}\n"
+            for token_id in access_badges[:10]:  # Limit to 10
+                # getAccessBadge tuple: [0]locationId [1]holder [2]purchasedAt
+                badge = await contract.functions.getAccessBadge(int(token_id)).call({'gas': 500000})
+                message += f"  #{token_id} - Location #{badge[0]}\n"
             if len(access_badges) > 10:
                 message += f"  ... and {len(access_badges) - 10} more\n"
             message += "\n"
 
         if climb_proofs:
             message += f"Climb Proofs ({len(climb_proofs)}):\n"
-            for proof in climb_proofs[:10]:  # Limit to 10
-                token_id = proof.get("tokenId", "?")
-                location_id = proof.get("locationId", "?")
-                tours = int(proof.get("toursRewarded", 0)) / 10**18
-                message += f"  #{token_id} - Location #{location_id} (+{tours:.0f} TOURS)\n"
+            for token_id in climb_proofs[:10]:  # Limit to 10
+                # getClimbProof tuple: [0]locationId [1]climber [2]photoIPFS [3]entryText [4]reward [5]climbedAt
+                proof = await contract.functions.getClimbProof(int(token_id)).call({'gas': 500000})
+                tours = int(proof[4]) / 10**18
+                message += f"  #{token_id} - Location #{proof[0]} (+{tours:.2f} TOURS)\n"
             if len(climb_proofs) > 10:
                 message += f"  ... and {len(climb_proofs) - 10} more\n"
 
@@ -1846,30 +1925,39 @@ async def viewnft(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Invalid token ID. Please enter a number.")
             return
 
-        nft = await get_nft_by_id(token_id)
-        if not nft:
-            await update.message.reply_text(f"NFT #{token_id} not found.")
-            return
+        # Identify the NFT by trying each getter (proof NFTs and badges use
+        # separate id ranges, so the wrong getter reverts).
+        proof = None
+        badge = None
+        try:
+            proof = await contract.functions.getClimbProof(token_id).call({'gas': 500000})
+        except Exception:
+            try:
+                badge = await contract.functions.getAccessBadge(token_id).call({'gas': 500000})
+            except Exception:
+                await update.message.reply_text(f"NFT #{token_id} not found.")
+                return
 
-        nft_type = nft.get("nftType", "Unknown")
-        location_id = nft.get("locationId", "?")
-        holder = nft.get("holder", "?")
-
-        message = f"{nft_type} #{token_id}\n\n"
-        message += f"Location: #{location_id}\n"
-        message += f"Holder: <a href=\"{EXPLORER_URL}/address/{holder}\">{holder[:10]}...</a>\n"
-
-        if nft_type == "Access Badge":
-            purchased_at = nft.get("purchasedAt", "Unknown")
-            message += f"Purchased: {purchased_at}\n"
+        if badge is not None:
+            # getAccessBadge tuple: [0]locationId [1]holder [2]purchasedAt
+            location_id, holder, purchased_at = badge[0], badge[1], badge[2]
+            message = f"Access Badge #{token_id}\n\n"
+            message += f"Location: #{location_id}\n"
+            message += f"Holder: <a href=\"{EXPLORER_URL}/address/{holder}\">{holder[:10]}...</a>\n"
+            when = datetime.fromtimestamp(purchased_at).strftime('%Y-%m-%d %H:%M:%S') if purchased_at else "Unknown"
+            message += f"Purchased: {when}\n"
         else:
-            minted_at = nft.get("mintedAt", "Unknown")
-            tours = int(nft.get("toursRewarded", 0)) / 10**18
-            photo_hash = nft.get("photoHash", "")
-            message += f"Minted: {minted_at}\n"
-            message += f"TOURS Rewarded: {tours:.0f}\n"
-            if photo_hash:
-                message += f"Photo: <a href=\"https://ipfs.io/ipfs/{photo_hash}\">View</a>\n"
+            # getClimbProof tuple: [0]locationId [1]climber [2]photoIPFS [3]entryText [4]reward [5]climbedAt
+            location_id, climber = proof[0], proof[1]
+            photo_ipfs, tours, climbed_at = proof[2], int(proof[4]) / 10**18, proof[5]
+            message = f"Climb Proof #{token_id}\n\n"
+            message += f"Location: #{location_id}\n"
+            message += f"Holder: <a href=\"{EXPLORER_URL}/address/{climber}\">{climber[:10]}...</a>\n"
+            when = datetime.fromtimestamp(climbed_at).strftime('%Y-%m-%d %H:%M:%S') if climbed_at else "Unknown"
+            message += f"Climbed: {when}\n"
+            message += f"TOURS Rewarded: {tours:.2f}\n"
+            if photo_ipfs:
+                message += f"Photo: <a href=\"https://ipfs.io/ipfs/{photo_ipfs}\">View</a>\n"
 
         message += f"\nContract: <a href=\"{EXPLORER_URL}/token/{CLIMBING_V2_ADDRESS}?a={token_id}\">View on Explorer</a>"
         await update.message.reply_text(message, parse_mode="HTML")
@@ -1891,27 +1979,27 @@ async def mypurchases(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wallet_address = session["wallet_address"]
         checksum_address = w3.to_checksum_address(wallet_address) if w3 else wallet_address  # Fallback if w3 unavailable
 
-        # Query Envio for purchases
-        purchases = await get_user_purchases(checksum_address)
+        # Read purchased location IDs directly from the contract (no indexer needed)
+        location_ids = await contract.functions.getUserPurchases(checksum_address).call({'gas': 500000})
 
-        if not purchases:
+        if not location_ids:
             await update.message.reply_text("No purchased climbs found. Use /purchaseclimb to buy one! 😅")
             logger.info(f"/mypurchases no purchases found, took {time.time() - start_time:.2f} seconds")
             return
 
         await update.message.reply_text("Your purchased climbs:")
-        for purchase in purchases:
-            location_id = int(purchase.get("locationId", 0))
-            purchased_at = purchase.get("purchasedAt", "")
-            climb = await contract.functions.getClimbingLocation(location_id).call()
-            message = f"🏔️ #{location_id} {escape_html(climb[1])} ({escape_html(climb[2])}) - Purchased {purchased_at}\n"
-            message += f"   Creator: <a href=\"{EXPLORER_URL}/address/{climb[0]}\">{climb[0][:6]}...</a>\n"
-            message += f"   Location: ({climb[3]/10**6:.4f}, {climb[4]/10**6:.4f})\n"
-            message += f"   Map: https://www.google.com/maps?q={climb[3]/10**6},{climb[4]/10**6}\n"
-            message += f"   Purchases: {climb[10]}\n"
+        for location_id in location_ids:
+            # getLocation tuple: [1]creator [4]name [5]difficulty [6]lat [7]lon [10]priceWmon
+            climb = await contract.functions.getLocation(int(location_id)).call({'gas': 500000})
+            lat, lon = climb[6] / 10**6, climb[7] / 10**6
+            message = f"🏔️ #{location_id} {escape_html(climb[4])} ({escape_html(climb[5])})\n"
+            message += f"   Creator: <a href=\"{EXPLORER_URL}/address/{climb[1]}\">{climb[1][:6]}...</a>\n"
+            message += f"   Location: ({lat:.4f}, {lon:.4f})\n"
+            message += f"   Map: https://www.google.com/maps?q={lat},{lon}\n"
+            message += f"   💰 Access price: {climb[10] / 1e18:.2f} WMON\n"
             await update.message.reply_text(message, parse_mode="HTML")
 
-        logger.info(f"/mypurchases success with {len(purchases)} purchases, took {time.time() - start_time:.2f} seconds")
+        logger.info(f"/mypurchases success with {len(location_ids)} purchases, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
         logger.error(f"Unexpected error in /mypurchases: {str(e)}, took {time.time() - start_time:.2f} seconds")
         error_msg = html.escape(str(e))
