@@ -147,6 +147,35 @@
             transform: none;
         }
 
+        #wcButton {
+            width: 100%;
+            margin-top: 12px;
+            padding: 14px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            background: rgba(59, 130, 246, 0.12);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            display: none;
+        }
+
+        #wcButton.visible {
+            display: block;
+        }
+
+        #wcButton:hover {
+            background: rgba(59, 130, 246, 0.2);
+        }
+
+        #wcButton:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
         #status {
             margin-top: 24px;
             padding: 16px;
@@ -347,6 +376,7 @@
             </div>
 
             <button id="connectButton">Connect Wallet</button>
+            <button id="wcButton" class="secondary">Connect with WalletConnect</button>
 
             <div id="status">Ready to connect</div>
             <div id="error"></div>
@@ -359,7 +389,7 @@
                 <div class="instructions-title">How to Connect</div>
                 <div class="instruction-item">
                     <span class="instruction-num">1</span>
-                    <span class="instruction-text">On mobile, tap <strong>Open in MetaMask</strong> above — it reopens this page in MetaMask's built-in browser. (Or open it manually via MetaMask Menu &gt; Browser.)</span>
+                    <span class="instruction-text">Tap <strong>Connect Wallet</strong>. On mobile this opens your wallet app directly; on desktop it shows a QR code to scan, or uses your browser extension if you have one.</span>
                 </div>
                 <div class="instruction-item">
                     <span class="instruction-num">2</span>
@@ -410,6 +440,55 @@
         const MM_SCHEME = 'metamask://dapp/' + MM_TARGET;
         const MM_UNIVERSAL = 'https://metamask.app.link/dapp/' + MM_TARGET;
 
+        // WalletConnect v2. Loaded on demand - the injected-wallet path never
+        // pays for it. jsDelivr's +esm build self-bundles its deps; the UMD
+        // build needs 13 peer globals and is unusable from a plain script tag.
+        const WC_ESM = 'https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.23.10/+esm';
+        const wcButton = document.getElementById('wcButton');
+        let usingWalletConnect = false;
+        let CONFIG = { walletConnectProjectId: '', chainId: 143, rpcUrl: MONAD_RPC };
+
+        async function loadConfig() {
+            try {
+                const r = await fetch(`${apiBaseUrl}/api/config`);
+                if (r.ok) CONFIG = Object.assign(CONFIG, await r.json());
+            } catch (e) {
+                console.warn('Could not load /api/config, using defaults:', e);
+            }
+            return CONFIG;
+        }
+
+        async function initWalletConnect() {
+            if (!CONFIG.walletConnectProjectId) {
+                throw new Error('WalletConnect is not configured on the server (WALLET_CONNECT_PROJECT_ID is unset).');
+            }
+            setStatus('<span class="loading"></span>Loading WalletConnect...');
+            const { EthereumProvider } = await import(WC_ESM);
+            const wc = await EthereumProvider.init({
+                projectId: CONFIG.walletConnectProjectId,
+                // optionalChains, not chains: a required namespace blocks wallets
+                // that don't support every listed chain, which is most of them
+                // for a network as new as Monad.
+                optionalChains: [CONFIG.chainId],
+                rpcMap: { [CONFIG.chainId]: CONFIG.rpcUrl },
+                showQrModal: true,
+                metadata: {
+                    name: 'EmpowerTours',
+                    description: 'Rock climbing on Monad',
+                    url: window.location.origin,
+                    icons: [window.location.origin + '/public/IMG_3466.jpg']
+                }
+            });
+            wc.on('disconnect', () => {
+                console.log('WalletConnect session ended');
+                stopPolling();
+                setStatus('Wallet disconnected. Connect again to continue.');
+                connectButton.disabled = false;
+                connectButton.textContent = 'Connect Wallet';
+            });
+            return wc;
+        }
+
         function setStatus(message, isConnected = false) {
             statusDiv.innerHTML = message;
             statusDiv.className = isConnected ? 'connected' : '';
@@ -425,41 +504,51 @@
             }
         }
 
-        function showDeeplinkFallback() {
-            errorDiv.textContent = '';
-            setStatus('No wallet in this browser. Reopen this page inside MetaMask.');
-            connectButton.disabled = false;
-            connectButton.textContent = '🦊 Open in MetaMask';
-            connectButton.onclick = () => {
-                // Try the custom scheme first - it is the only one that escapes
-                // Telegram's in-app browser. If nothing handled it the page is
-                // still here after a moment, so offer the universal link.
+        // Secondary route for people who specifically want MetaMask's own browser.
+        // Rendered as a hint, not as the primary button - WalletConnect is the
+        // path that actually works everywhere.
+        function showMetaMaskHint() {
+            deeplinkDiv.innerHTML =
+                'Prefer MetaMask\'s built-in browser? ' +
+                '<a href="#" id="mmJump">Open this page in MetaMask</a>' +
+                '<code>' + window.location.href + '</code>';
+            const jump = document.getElementById('mmJump');
+            if (!jump) return;
+            jump.onclick = (ev) => {
+                ev.preventDefault();
+                // The custom scheme is the only form that can escape an in-app
+                // webview; the https universal link just 307s to the App Store
+                // there. If nothing handles it we are still on the page, so
+                // surface the universal link as a last resort.
                 const startedAt = Date.now();
                 window.location.href = MM_SCHEME;
                 setTimeout(() => {
-                    if (document.hidden || Date.now() - startedAt > 2500) return; // app opened
+                    if (document.hidden || Date.now() - startedAt > 2500) return;
                     deeplinkDiv.innerHTML =
-                        'MetaMask did not open. Either it is not installed, or this browser blocked the jump.<br><br>' +
-                        '<a href="' + MM_UNIVERSAL + '">Try the MetaMask app link</a><br>' +
-                        'or open this page in Safari/Chrome first:<br>' +
+                        'MetaMask did not open - it may not be installed, or this browser blocked the jump.<br>' +
+                        '<a href="' + MM_UNIVERSAL + '">Try the MetaMask app link</a>' +
                         '<code>' + window.location.href + '</code>';
                 }, 1200);
             };
         }
 
-        async function initializeWeb3() {
+        async function initializeWeb3(forceWalletConnect = false) {
             try {
                 if (typeof Web3 === 'undefined') {
                     throw new Error('Web3.js library failed to load. Please refresh the page.');
                 }
-                if (window.ethereum) {
+                if (!forceWalletConnect && window.ethereum) {
                     provider = window.ethereum;
                     web3 = new Web3(provider);
+                    usingWalletConnect = false;
                 } else {
-                    // No injected wallet (e.g. Safari/Chrome). Send the user into
-                    // MetaMask's in-app browser instead of failing.
-                    showDeeplinkFallback();
-                    return false;
+                    // No injected wallet, or the user chose WalletConnect. WC v2
+                    // handles both cases: QR on desktop, native wallet deeplink on
+                    // mobile - and unlike a MetaMask universal link it works from
+                    // inside Telegram's in-app browser.
+                    provider = await initWalletConnect();
+                    web3 = new Web3(provider);
+                    usingWalletConnect = true;
                 }
             } catch (error) {
                 errorDiv.textContent = error.message;
@@ -470,21 +559,35 @@
             return true;
         }
 
-        async function connectWallet() {
+        async function connectWallet(forceWalletConnect = false) {
             errorDiv.textContent = '';
             setLoading(true);
+            wcButton.disabled = true;
             setStatus('Connecting to wallet...');
-            console.log('Attempting to connect wallet for userId:', userId);
+            console.log('Attempting to connect wallet for userId:', userId, 'wc:', forceWalletConnect);
 
-            if (!await initializeWeb3()) {
-                // showDeeplinkFallback() already restyled the button when there is
-                // no injected wallet; don't clobber it with setLoading(false).
+            if (!await initializeWeb3(forceWalletConnect)) {
                 connectButton.disabled = false;
-                if (window.ethereum) connectButton.textContent = 'Connect Wallet';
+                connectButton.textContent = 'Connect Wallet';
+                wcButton.disabled = false;
                 return;
             }
 
             try {
+                let accounts;
+                if (usingWalletConnect) {
+                    // enable() opens the QR / wallet-picker modal and resolves with
+                    // the session accounts. It must run before any chain query -
+                    // there is no session to query until it does.
+                    setStatus('<span class="loading"></span>Approve the connection in your wallet...');
+                    accounts = await provider.enable();
+                } else {
+                    accounts = await provider.request({ method: 'eth_requestAccounts' });
+                }
+                if (!accounts || !accounts.length) {
+                    throw new Error('Wallet returned no account.');
+                }
+
                 const chainId = await web3.eth.getChainId();
                 console.log('Current chain ID (decimal):', chainId);
 
@@ -496,31 +599,38 @@
                             params: [{ chainId: MONAD_CHAIN_ID }],
                         });
                     } catch (switchError) {
-                        if (switchError.code === 4902) {
+                        if (switchError && switchError.code === 4902) {
                             setStatus('Adding Monad network...');
                             await provider.request({
                                 method: 'wallet_addEthereumChain',
                                 params: [{
                                     chainId: MONAD_CHAIN_ID,
                                     chainName: 'Monad',
-                                    rpcUrls: [MONAD_RPC],
+                                    rpcUrls: [CONFIG.rpcUrl || MONAD_RPC],
                                     nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
                                     blockExplorerUrls: ['https://monadscan.com']
                                 }],
                             });
+                        } else if (usingWalletConnect) {
+                            // Plenty of wallets refuse programmatic chain switching
+                            // over WalletConnect. The session already advertises
+                            // Monad, so continue and let the signature request
+                            // surface a real mismatch rather than blocking here.
+                            console.warn('WalletConnect chain switch refused, continuing:', switchError);
                         } else {
-                            throw new Error('Failed to switch network. Please add Monad manually in MetaMask.');
+                            throw new Error('Failed to switch network. Please add Monad manually in your wallet.');
                         }
                     }
                 }
 
-                const accounts = await provider.request({ method: 'eth_requestAccounts' });
                 const account = accounts[0];
                 connectedAccount = account;
                 const shortAddr = `${account.substring(0, 6)}...${account.substring(account.length - 4)}`;
-                setStatus(`Connected: ${shortAddr}`, true);
+                setStatus(`Connected: ${shortAddr}${usingWalletConnect ? ' (WalletConnect)' : ''}`, true);
                 connectButton.textContent = 'Connected';
                 connectButton.disabled = true;
+                wcButton.classList.remove('visible');
+                deeplinkDiv.innerHTML = '';
                 console.log('Connected account:', account);
 
                 await submitWallet(account);
@@ -529,6 +639,7 @@
                 errorDiv.textContent = error.message || 'Failed to connect wallet';
                 console.error('Error connecting wallet:', error);
                 setStatus('Ready to connect');
+                wcButton.disabled = false;
                 setLoading(false);
             }
         }
@@ -660,13 +771,35 @@
             }
         }
 
-        // onclick (not addEventListener) so showDeeplinkFallback can replace the handler
-        connectButton.onclick = connectWallet;
+        function hasWalletConnectSession() {
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    if ((localStorage.key(i) || '').startsWith('wc@2')) return true;
+                }
+            } catch (e) { /* storage blocked */ }
+            return false;
+        }
 
         window.addEventListener('load', async () => {
-            if (userId) {
-                console.log('Page loaded, initializing Web3 for userId:', userId);
-                if (await initializeWeb3()) {
+            if (!userId) {
+                errorDiv.textContent = 'Missing userId. Please use the link from /connectwallet in Telegram.';
+                connectButton.disabled = true;
+                console.error('Missing userId in URL');
+                return;
+            }
+            console.log('Page loaded for userId:', userId);
+            await loadConfig();
+            const hasInjected = !!window.ethereum;
+            const wcReady = !!CONFIG.walletConnectProjectId;
+            console.log('injected wallet:', hasInjected, 'walletconnect configured:', wcReady);
+
+            if (hasInjected) {
+                connectButton.onclick = () => connectWallet(false);
+                if (wcReady) {
+                    wcButton.classList.add('visible');
+                    wcButton.onclick = () => connectWallet(true);
+                }
+                if (await initializeWeb3(false)) {
                     // Only poll once an account is actually authorized. eth_accounts
                     // is silent (no prompt) and returns [] when it isn't. Polling
                     // before that burns the server's one-shot tx_served flag on a
@@ -680,6 +813,7 @@
                             setStatus(`Connected: ${short}`, true);
                             connectButton.textContent = 'Connected';
                             connectButton.disabled = true;
+                            wcButton.classList.remove('visible');
                             await submitWallet(accounts[0]);
                             startPolling();
                         } else {
@@ -689,10 +823,29 @@
                         console.warn('eth_accounts check failed:', e);
                     }
                 }
-            } else {
-                errorDiv.textContent = 'Missing userId. Please use the link from /connectwallet in Telegram.';
+                return;
+            }
+
+            // No injected wallet: WalletConnect is the primary path. It is the only
+            // option that works from inside Telegram's in-app browser, where
+            // MetaMask universal links just 307 to the App Store.
+            if (!wcReady) {
+                errorDiv.textContent = 'WalletConnect is not configured on the server. Ask the operator to set WALLET_CONNECT_PROJECT_ID.';
+                setStatus('No wallet available in this browser');
                 connectButton.disabled = true;
-                console.error('Missing userId in URL');
+                showMetaMaskHint();
+                return;
+            }
+            connectButton.onclick = () => connectWallet(true);
+            showMetaMaskHint();
+            if (hasWalletConnectSession()) {
+                // Returning user - init() restores the stored session, so enable()
+                // resolves without showing the modal again.
+                console.log('Existing WalletConnect session found, reconnecting');
+                setStatus('<span class="loading"></span>Reconnecting...');
+                await connectWallet(true);
+            } else {
+                setStatus('Tap Connect Wallet to scan a QR or open your wallet app');
             }
         });
     </script>

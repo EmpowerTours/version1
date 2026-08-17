@@ -2545,6 +2545,21 @@ async def get_transaction(userId: str):
         logger.error(f"Error in /get_transaction for user {userId}: {str(e)}, took {time.time() - start_time:.2f} seconds")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/config")
+async def api_config():
+    """Runtime config for the signing page.
+
+    walletConnectProjectId is a *public* client identifier - it ships in every
+    WalletConnect frontend by design and is not a secret. Restrict it by domain
+    in the Reown dashboard rather than trying to hide it.
+    """
+    return {
+        "walletConnectProjectId": WALLET_CONNECT_PROJECT_ID or "",
+        "chainId": 143,
+        "rpcUrl": MONAD_RPC_URL or "https://rpc.monad.xyz",
+        "explorerUrl": EXPLORER_URL,
+    }
+
 @app.post("/reset_transaction")
 async def reset_transaction(request: Request):
     """Re-arm a pending tx after a rejected/failed signature.
