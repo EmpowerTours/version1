@@ -201,6 +201,37 @@
             display: block;
         }
 
+        #deeplinkHelp {
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: rgba(94, 234, 212, 0.08);
+            border: 1px solid rgba(94, 234, 212, 0.2);
+            border-radius: 12px;
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 13px;
+            line-height: 1.6;
+            text-align: center;
+            display: none;
+        }
+
+        #deeplinkHelp:not(:empty) {
+            display: block;
+        }
+
+        #deeplinkHelp a {
+            color: #5eead4;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        #deeplinkHelp code {
+            display: block;
+            margin-top: 6px;
+            font-size: 11px;
+            word-break: break-all;
+            color: rgba(255, 255, 255, 0.55);
+        }
+
         .divider {
             height: 1px;
             background: rgba(255, 255, 255, 0.08);
@@ -319,6 +350,7 @@
 
             <div id="status">Ready to connect</div>
             <div id="error"></div>
+            <div id="deeplinkHelp"></div>
             <div id="txHash"></div>
 
             <div class="divider"></div>
@@ -353,6 +385,7 @@
         const apiBaseUrl = 'https://version1-production.up.railway.app';
         const statusDiv = document.getElementById('status');
         const errorDiv = document.getElementById('error');
+        const deeplinkDiv = document.getElementById('deeplinkHelp');
         const txHashDiv = document.getElementById('txHash');
         const connectButton = document.getElementById('connectButton');
         let web3;
@@ -362,11 +395,20 @@
         const MONAD_CHAIN_ID = '0x8f';
         const MONAD_CHAIN_ID_DECIMAL = 143;
         const MONAD_RPC = 'https://rpc.monad.xyz';
-        // Universal link that reopens THIS page inside MetaMask's in-app browser,
-        // where window.ethereum exists. MetaMask has no deeplink for arbitrary
-        // calldata, so we deeplink the page and sign from here.
-        const MM_DEEPLINK = 'https://metamask.app.link/dapp/' +
-            (window.location.host + window.location.pathname + window.location.search);
+        // Reopen THIS page inside MetaMask's in-app browser, where window.ethereum
+        // exists. MetaMask has no deeplink for arbitrary calldata, so we deeplink
+        // the page and sign from here.
+        //
+        // Two forms, because they fail in opposite situations:
+        //  - metamask://  custom scheme. Works from inside an in-app webview
+        //    (Telegram's browser) on a user gesture. Does nothing if the app
+        //    isn't installed.
+        //  - https://metamask.app.link  universal link. Works when the OS gets
+        //    the tap (real Safari/Chrome) and falls back to the App Store, but
+        //    inside Telegram's webview it just 307s to the App Store and dies.
+        const MM_TARGET = window.location.host + window.location.pathname + window.location.search;
+        const MM_SCHEME = 'metamask://dapp/' + MM_TARGET;
+        const MM_UNIVERSAL = 'https://metamask.app.link/dapp/' + MM_TARGET;
 
         function setStatus(message, isConnected = false) {
             statusDiv.innerHTML = message;
@@ -388,7 +430,21 @@
             setStatus('No wallet in this browser. Reopen this page inside MetaMask.');
             connectButton.disabled = false;
             connectButton.textContent = '🦊 Open in MetaMask';
-            connectButton.onclick = () => { window.location.href = MM_DEEPLINK; };
+            connectButton.onclick = () => {
+                // Try the custom scheme first - it is the only one that escapes
+                // Telegram's in-app browser. If nothing handled it the page is
+                // still here after a moment, so offer the universal link.
+                const startedAt = Date.now();
+                window.location.href = MM_SCHEME;
+                setTimeout(() => {
+                    if (document.hidden || Date.now() - startedAt > 2500) return; // app opened
+                    deeplinkDiv.innerHTML =
+                        'MetaMask did not open. Either it is not installed, or this browser blocked the jump.<br><br>' +
+                        '<a href="' + MM_UNIVERSAL + '">Try the MetaMask app link</a><br>' +
+                        'or open this page in Safari/Chrome first:<br>' +
+                        '<code>' + window.location.href + '</code>';
+                }, 1200);
+            };
         }
 
         async function initializeWeb3() {
@@ -537,6 +593,12 @@
                         txHashDiv.innerHTML = `<a href="https://monadscan.com/tx/${txHash}" target="_blank" style="color: inherit;">${shortHash}</a>`;
                         console.log('Transaction signed, hash:', txHash);
                         await submitTransaction(txHash);
+                        // Multi-step flows (approve -> createLocation, approve ->
+                        // purchaseLocation) queue a second tx once the first
+                        // confirms. Without resuming here the page stops listening
+                        // and leg 2 is never offered.
+                        setStatus('Signed. Checking for a follow-up transaction...', true);
+                        startPolling();
                     } catch (error) {
                         // Re-arm the one-shot server flag so the retry actually works.
                         await resetTransaction();

@@ -808,6 +808,35 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 DEFAULT_BASE_URL = "https://version1-production.up.railway.app"
 
 
+def confirmation_message(pending: dict, tx_hash: str) -> str:
+    """Message for a freshly mined tx.
+
+    A two-leg flow (approve -> createLocation/purchaseLocation) confirms the
+    approve first. That leg carries entry_type "climb" while `name` lives
+    inside next_tx, which is why it used to announce
+    "Climb 'Unknown' (Unknown) created!" before anything had been created.
+    """
+    link = f"[Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash})"
+    if pending.get("next_tx"):
+        return f"Approval confirmed! {link} ✅ One more signature to finish."
+    entry_type = pending.get("entry_type", "")
+    if entry_type == "climb":
+        name = pending.get("name") or "Unknown"
+        difficulty = pending.get("difficulty") or "Unknown"
+        return f"Transaction confirmed! {link} 🪨 Climb '{name}' ({difficulty}) created!"
+    if entry_type == "journal":
+        return f"Transaction confirmed! {link} 📝 Journal entry added! You earned TOURS!"
+    if entry_type == "purchase":
+        location_id = pending.get("location_id")
+        suffix = f" #{location_id}" if location_id else ""
+        return f"Transaction confirmed! {link} 🎟️ Climb{suffix} purchased! Try /mypurchases."
+    if entry_type == "wrap":
+        return f"Transaction confirmed! {link} 🔄 MON wrapped to WMON. Check /balance."
+    if entry_type == "unwrap":
+        return f"Transaction confirmed! {link} 🔄 WMON unwrapped to MON. Check /balance."
+    return f"Transaction confirmed! {link} 🪙 Action completed successfully."
+
+
 def signing_url(user_id: str) -> str:
     """Plain https URL of the signing page for this user."""
     base = (API_BASE_URL or DEFAULT_BASE_URL).rstrip('/')
@@ -1161,16 +1190,18 @@ async def buildaclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"/buildaclimb failed due to checksum error, took {time.time() - start_time:.2f} seconds")
             return
 
-        # Check for duplicate climb name (V2: nextLocationId + locations(i))
+        # Check for duplicate climb name (V2: nextLocationId + getLocation(i))
         try:
             next_location_id = await contract.functions.nextLocationId().call({'gas': 500000})
             location_count = next_location_id - 1  # nextLocationId starts at 1
-            coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, next_location_id)]
+            coros = [contract.functions.getLocation(i).call({'gas': 500000}) for i in range(1, next_location_id)]
             locations_list = await asyncio.gather(*coros, return_exceptions=True)
             for loc in locations_list:
                 if isinstance(loc, Exception):
                     continue
-                # V2 locations tuple: (id, creator, creatorFid, creatorTelegramId, name, difficulty, lat, lon, photoProofIPFS, description, priceWmon, isActive)
+                # Deployed tuple: (id, creator, creatorFid, creatorTelegramId, name,
+                # difficulty, lat, lon, photoProofIPFS, description, priceWmon,
+                # createdAt, isActive) -- 13 fields, isActive at [12].
                 if loc[4].lower() == name.lower():
                     await update.message.reply_text(
                         f"Climb name '{name}' already exists. Choose a unique name (e.g., {name}2025). 😅"
@@ -1441,7 +1472,7 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"/purchaseclimb failed: already purchased climb {location_id} for user {user_id}, took {time.time() - start_time:.2f} seconds")
             return
         # V2: Get location's WMON price from contract
-        location_data = await contract.functions.locations(location_id).call({'gas': 500000})
+        location_data = await contract.functions.getLocation(location_id).call({'gas': 500000})
         purchase_cost = location_data[10]  # priceWmon field
         logger.info(f"Location #{location_id} price: {purchase_cost / 10**18} WMON")
         # Check WMON balance
@@ -1517,7 +1548,11 @@ async def fetch_climbs_from_contract() -> list:
     next_id = await contract.functions.nextLocationId().call({'gas': 500000})
     if next_id <= 1:
         return []
-    coros = [contract.functions.locations(i).call({'gas': 500000}) for i in range(1, next_id)]
+    # Must be getLocation, not the public `locations` mapping getter: the
+    # deployed struct carries a 13th field (createdAt at [11]) that the mapping
+    # getter's ABI here does not describe, so every locations(i) read fails to
+    # decode, gets swallowed below, and /findaclimb reports zero climbs.
+    coros = [contract.functions.getLocation(i).call({'gas': 500000}) for i in range(1, next_id)]
     results = await asyncio.gather(*coros, return_exceptions=True)
     locations = []
     for loc in results:
@@ -1525,8 +1560,9 @@ async def fetch_climbs_from_contract() -> list:
             logger.warning(f"Skipping location read error: {loc}")
             continue
         # tuple: (id, creator, creatorFid, creatorTelegramId, name, difficulty,
-        #         latitude, longitude, photoProofIPFS, description, priceWmon, isActive)
-        if not loc[11]:  # isActive
+        #         latitude, longitude, photoProofIPFS, description, priceWmon,
+        #         createdAt, isActive)
+        if not loc[12]:  # isActive
             continue
         locations.append({
             'locationId': loc[0],
@@ -2073,17 +2109,7 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         receipt = await w3.eth.get_transaction_receipt(tx_hash)
         if receipt and receipt.status:
-            entry_type = pending.get("entry_type", "")
-            action = "Action completed"
-            if entry_type == "climb":
-                action = f"Climb '{pending.get('name', 'Unknown')}' ({pending.get('difficulty', 'Unknown')}) created"
-            elif entry_type == "journal":
-                action = "Journal entry submitted! You earned TOURS"
-            elif entry_type == "wrap":
-                action = "MON wrapped to WMON. Check /balance"
-            elif entry_type == "unwrap":
-                action = "WMON unwrapped to MON. Check /balance"
-            await update.message.reply_text(f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🪙 {action}.", parse_mode="Markdown")
+            await update.message.reply_text(confirmation_message(pending, tx_hash), parse_mode="Markdown")
             if CHAT_HANDLE and TELEGRAM_TOKEN:
                 message = f"New activity by {escape_html(update.effective_user.username or update.effective_user.first_name)} on EmpowerTours! 🧗 <a href=\"{EXPLORER_URL}/tx/{tx_hash}\">Tx: {escape_html(tx_hash)}</a>"
                 await send_notification(CHAT_HANDLE, message)
@@ -2116,7 +2142,8 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "difficulty": next_tx_data["difficulty"],
                         "latitude": next_tx_data["latitude"],
                         "longitude": next_tx_data["longitude"],
-                        "photo_hash": next_tx_data["photo_hash"]
+                        "photo_hash": next_tx_data["photo_hash"],
+                        "entry_type": "climb"
                     })
                     await update.message.reply_text(
                         f"WMON approval confirmed! Now tap below to sign the transaction for climb '{next_tx_data['name']}' ({next_tx_data['difficulty']}).",
@@ -2138,7 +2165,9 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "awaiting_tx": True,
                         "tx_data": tx,
                         "wallet_address": pending["wallet_address"],
-                        "timestamp": time.time()
+                        "timestamp": time.time(),
+                        "entry_type": "purchase",
+                        "location_id": next_tx_data["location_id"]
                     })
                     await update.message.reply_text(
                         f"WMON approval confirmed! Now tap below to sign the transaction for purchasing climb #{next_tx_data['location_id']}.",
@@ -2622,16 +2651,7 @@ async def submit_tx(request: Request):
             if receipt and receipt.status:
                 pending = await get_pending_wallet(user_id)
                 if pending:
-                    entry_type = pending.get("entry_type", "")
-                    success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🪙 Action completed successfully."
-                    if entry_type == "climb":
-                        success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🪨 Climb '{pending.get('name', 'Unknown')}' ({pending.get('difficulty', 'Unknown')}) created!"
-                    elif entry_type == "journal":
-                        success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 📝 Journal entry added! You earned TOURS!"
-                    elif entry_type == "wrap":
-                        success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🔄 MON wrapped to WMON. Check /balance."
-                    elif entry_type == "unwrap":
-                        success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🔄 WMON unwrapped to MON. Check /balance."
+                    success_message = confirmation_message(pending, tx_hash)
                     if CHAT_HANDLE and TELEGRAM_TOKEN:
                         message = f"New activity by user {user_id} on EmpowerTours! 🧗 <a href=\"{EXPLORER_URL}/tx/{tx_hash}\">Tx: {escape_html(tx_hash)}</a>"
                         await send_notification(CHAT_HANDLE, message)
@@ -2665,7 +2685,8 @@ async def submit_tx(request: Request):
                                 "difficulty": next_tx_data["difficulty"],
                                 "latitude": next_tx_data["latitude"],
                                 "longitude": next_tx_data["longitude"],
-                                "photo_hash": next_tx_data["photo_hash"]
+                                "photo_hash": next_tx_data["photo_hash"],
+                                "entry_type": "climb"
                             })
                             await application.bot.send_message(
                                 user_id,
@@ -2688,7 +2709,9 @@ async def submit_tx(request: Request):
                                 "awaiting_tx": True,
                                 "tx_data": tx,
                                 "wallet_address": pending["wallet_address"],
-                                "timestamp": time.time()
+                                "timestamp": time.time(),
+                                "entry_type": "purchase",
+                                "location_id": next_tx_data["location_id"]
                             })
                             await application.bot.send_message(
                                 user_id,
