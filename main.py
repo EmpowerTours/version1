@@ -1020,7 +1020,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'from': checksum_address,
                 'nonce': nonce,
                 'gas': 500000,
-                'gas_price': await w3.eth.gas_price
             })
 
             await set_pending_wallet(user_id, {
@@ -1245,7 +1244,6 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'from': checksum_address,
                     'nonce': nonce,
                     'gas': 500000,
-                    'gas_price': await w3.eth.gas_price
                 })
                 await set_pending_wallet(user_id, {
                     "awaiting_tx": True,
@@ -1309,7 +1307,6 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         'from': checksum_address,
                         'nonce': nonce,
                         'gas': 100000,
-                        'gas_price': await w3.eth.gas_price
                     })
                     await set_pending_wallet(user_id, {
                         "awaiting_tx": True,
@@ -1372,7 +1369,6 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'from': checksum_address,
                     'nonce': nonce,
                     'gas': 500000,
-                    'gas_price': await w3.eth.gas_price
                 })
                 logger.info(f"V2 createLocation transaction built for user {user_id}: {json.dumps(tx, default=str)}")
                 await set_pending_wallet(user_id, {
@@ -1465,7 +1461,6 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'from': checksum_address,
                 'nonce': nonce,
                 'gas': 100000,
-                'gas_price': await w3.eth.gas_price
             })
             await set_pending_wallet(user_id, {
                 "awaiting_tx": True,
@@ -1491,7 +1486,6 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'from': checksum_address,
             'nonce': nonce,
             'gas': 300000,
-            'gas_price': await w3.eth.gas_price
         })
         await update.message.reply_text(
             f"Tap below to sign the transaction for climb purchase ({purchase_cost / 10**18} WMON) using your wallet ([{checksum_address[:6]}...]({EXPLORER_URL}/address/{checksum_address})).",
@@ -2112,7 +2106,6 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         'from': pending["wallet_address"],
                         'nonce': nonce,
                         'gas': 500000,
-                        'gas_price': await w3.eth.gas_price
                     })
                     await set_pending_wallet(user_id, {
                         "awaiting_tx": True,
@@ -2140,7 +2133,6 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         'from': pending["wallet_address"],
                         'nonce': nonce,
                         'gas': 300000,
-                        'gas_price': await w3.eth.gas_price
                     })
                     await set_pending_wallet(user_id, {
                         "awaiting_tx": True,
@@ -2629,7 +2621,6 @@ async def submit_tx(request: Request):
                                 'from': pending["wallet_address"],
                                 'nonce': nonce,
                                 'gas': 500000,
-                                'gas_price': await w3.eth.gas_price
                             })
                             await set_pending_wallet(user_id, {
                                 "awaiting_tx": True,
@@ -2658,7 +2649,6 @@ async def submit_tx(request: Request):
                                 'from': pending["wallet_address"],
                                 'nonce': nonce,
                                 'gas': 300000,
-                                'gas_price': await w3.eth.gas_price
                             })
                             await set_pending_wallet(user_id, {
                                 "awaiting_tx": True,
