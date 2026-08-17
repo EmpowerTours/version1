@@ -34,6 +34,9 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL")
 CHAT_HANDLE = os.getenv("CHAT_HANDLE")
 MONAD_RPC_URL = os.getenv("MONAD_RPC_URL")
+# Keyless endpoint safe to hand to browsers. MONAD_RPC_URL is the bot's own
+# authenticated provider and must never be served to a client.
+PUBLIC_RPC_URL = os.getenv("PUBLIC_RPC_URL", "https://rpc.monad.xyz")
 TOURS_TOKEN_ADDRESS = os.getenv("TOURS_TOKEN_ADDRESS")
 OWNER_ADDRESS = os.getenv("OWNER_ADDRESS")
 WALLET_CONNECT_PROJECT_ID = os.getenv("WALLET_CONNECT_PROJECT_ID")
@@ -2556,7 +2559,10 @@ async def api_config():
     return {
         "walletConnectProjectId": WALLET_CONNECT_PROJECT_ID or "",
         "chainId": 143,
-        "rpcUrl": MONAD_RPC_URL or "https://rpc.monad.xyz",
+        # Deliberately NOT MONAD_RPC_URL: that is the bot's authenticated
+        # provider endpoint and carries an API key in the path. Anything
+        # returned here is readable by anyone who loads the page.
+        "rpcUrl": PUBLIC_RPC_URL,
         "explorerUrl": EXPLORER_URL,
     }
 
