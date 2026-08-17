@@ -357,6 +357,7 @@
         const connectButton = document.getElementById('connectButton');
         let web3;
         let provider;
+        let connectedAccount = null;
         let pollingInterval = null;
         const MONAD_CHAIN_ID = '0x8f';
         const MONAD_CHAIN_ID_DECIMAL = 143;
@@ -459,6 +460,7 @@
 
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
                 const account = accounts[0];
+                connectedAccount = account;
                 const shortAddr = `${account.substring(0, 6)}...${account.substring(account.length - 4)}`;
                 setStatus(`Connected: ${shortAddr}`, true);
                 connectButton.textContent = 'Connected';
@@ -513,6 +515,18 @@
                 const data = await response.json();
                 if (data.transaction) {
                     stopPolling();
+                    // The bot pins `from` to the wallet linked in Telegram. If the
+                    // active MetaMask account is a different one the signature fails
+                    // with an opaque error, so say which account is needed.
+                    const need = (data.transaction.from || '').toLowerCase();
+                    const have = (connectedAccount || '').toLowerCase();
+                    if (need && have && need !== have) {
+                        await resetTransaction();
+                        errorDiv.textContent = `Wrong account. This transaction is for ${data.transaction.from}, but MetaMask is on ${connectedAccount}. Switch accounts in MetaMask, or run /disconnect then /connectwallet in Telegram.`;
+                        setStatus('Wrong account selected');
+                        startPolling();
+                        return;
+                    }
                     setStatus('<span class="loading"></span>Waiting for signature...', true);
                     console.log('Transaction data received:', data.transaction);
                     try {
@@ -524,8 +538,10 @@
                         console.log('Transaction signed, hash:', txHash);
                         await submitTransaction(txHash);
                     } catch (error) {
-                        errorDiv.textContent = `Transaction failed or rejected: ${error.message}. Re-run the command in Telegram to try again.`;
-                        setStatus('Ready — re-run the command in Telegram to retry.');
+                        // Re-arm the one-shot server flag so the retry actually works.
+                        await resetTransaction();
+                        errorDiv.textContent = `Transaction failed or rejected: ${error.message}. It will be offered again shortly.`;
+                        setStatus('Rejected — retrying in a few seconds.');
                         console.error('Error signing transaction:', error);
                         startPolling();
                     }
@@ -533,6 +549,19 @@
             } catch (error) {
                 errorDiv.textContent = `Polling error: ${error.message}`;
                 console.error('Error polling transaction:', error);
+            }
+        }
+
+        async function resetTransaction() {
+            try {
+                await fetch(`${apiBaseUrl}/reset_transaction`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId })
+                });
+                console.log('Pending transaction re-armed');
+            } catch (error) {
+                console.error('Could not re-arm transaction:', error);
             }
         }
 
@@ -576,7 +605,27 @@
             if (userId) {
                 console.log('Page loaded, initializing Web3 for userId:', userId);
                 if (await initializeWeb3()) {
-                    startPolling();
+                    // Only poll once an account is actually authorized. eth_accounts
+                    // is silent (no prompt) and returns [] when it isn't. Polling
+                    // before that burns the server's one-shot tx_served flag on a
+                    // sendTransaction that cannot succeed.
+                    try {
+                        const accounts = await provider.request({ method: 'eth_accounts' });
+                        if (accounts && accounts.length) {
+                            console.log('Already authorized:', accounts[0]);
+                            connectedAccount = accounts[0];
+                            const short = `${accounts[0].substring(0, 6)}...${accounts[0].substring(accounts[0].length - 4)}`;
+                            setStatus(`Connected: ${short}`, true);
+                            connectButton.textContent = 'Connected';
+                            connectButton.disabled = true;
+                            await submitWallet(accounts[0]);
+                            startPolling();
+                        } else {
+                            setStatus('Tap Connect Wallet to continue');
+                        }
+                    } catch (e) {
+                        console.warn('eth_accounts check failed:', e);
+                    }
                 }
             } else {
                 errorDiv.textContent = 'Missing userId. Please use the link from /connectwallet in Telegram.';

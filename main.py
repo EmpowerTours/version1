@@ -2516,6 +2516,34 @@ async def get_transaction(userId: str):
         logger.error(f"Error in /get_transaction for user {userId}: {str(e)}, took {time.time() - start_time:.2f} seconds")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/reset_transaction")
+async def reset_transaction(request: Request):
+    """Re-arm a pending tx after a rejected/failed signature.
+
+    /get_transaction is one-shot (tx_served) so a polling page can't re-prompt
+    forever. Without this the user would have to redo the whole /buildaclimb
+    flow just because they mistapped Reject.
+    """
+    start_time = time.time()
+    try:
+        data = await request.json()
+        user_id = data.get("userId")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Missing userId")
+        pending = await get_pending_wallet(user_id)
+        if not pending or not pending.get("awaiting_tx"):
+            logger.info(f"/reset_transaction: nothing pending for user {user_id}")
+            return {"status": "no_pending"}
+        pending["tx_served"] = False
+        await set_pending_wallet(user_id, pending)
+        logger.info(f"/reset_transaction re-armed tx for user {user_id}, took {time.time() - start_time:.2f} seconds")
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in /reset_transaction: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/submit_wallet")
 async def submit_wallet(request: Request):
     start_time = time.time()
@@ -2542,7 +2570,13 @@ async def submit_wallet(request: Request):
         # Save the wallet first - this is the critical operation
         checksum_address = w3.to_checksum_address(wallet_address)
         await set_session(user_id, checksum_address)
-        await delete_pending_wallet(user_id)
+        # Only clear a pending *connection*. A pending transaction lives in the
+        # same slot, and the signing page connects the wallet before it polls -
+        # deleting unconditionally here threw away the tx the user came to sign.
+        if pending and pending.get("awaiting_tx"):
+            logger.info(f"/submit_wallet preserving pending transaction for user {user_id}")
+        else:
+            await delete_pending_wallet(user_id)
         logger.info(f"/submit_wallet saved wallet for user {user_id}: {checksum_address}")
 
         # Try to send Telegram notification (non-critical - don't fail if this errors)
