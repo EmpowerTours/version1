@@ -327,7 +327,7 @@
                 <div class="instructions-title">How to Connect</div>
                 <div class="instruction-item">
                     <span class="instruction-num">1</span>
-                    <span class="instruction-text">On mobile, open this link in MetaMask's built-in browser (Menu > Browser)</span>
+                    <span class="instruction-text">On mobile, tap <strong>Open in MetaMask</strong> above — it reopens this page in MetaMask's built-in browser. (Or open it manually via MetaMask Menu &gt; Browser.)</span>
                 </div>
                 <div class="instruction-item">
                     <span class="instruction-num">2</span>
@@ -348,7 +348,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
-    <script src="https://unpkg.com/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
     <script>
         const userId = new URLSearchParams(window.location.search).get('userId');
         const apiBaseUrl = 'https://version1-production.up.railway.app';
@@ -362,6 +361,11 @@
         const MONAD_CHAIN_ID = '0x8f';
         const MONAD_CHAIN_ID_DECIMAL = 143;
         const MONAD_RPC = 'https://rpc.monad.xyz';
+        // Universal link that reopens THIS page inside MetaMask's in-app browser,
+        // where window.ethereum exists. MetaMask has no deeplink for arbitrary
+        // calldata, so we deeplink the page and sign from here.
+        const MM_DEEPLINK = 'https://metamask.app.link/dapp/' +
+            (window.location.host + window.location.pathname + window.location.search);
 
         function setStatus(message, isConnected = false) {
             statusDiv.innerHTML = message;
@@ -378,6 +382,14 @@
             }
         }
 
+        function showDeeplinkFallback() {
+            errorDiv.textContent = '';
+            setStatus('No wallet in this browser. Reopen this page inside MetaMask.');
+            connectButton.disabled = false;
+            connectButton.textContent = '🦊 Open in MetaMask';
+            connectButton.onclick = () => { window.location.href = MM_DEEPLINK; };
+        }
+
         async function initializeWeb3() {
             try {
                 if (typeof Web3 === 'undefined') {
@@ -386,15 +398,11 @@
                 if (window.ethereum) {
                     provider = window.ethereum;
                     web3 = new Web3(provider);
-                } else if (window.WalletConnectProvider) {
-                    provider = new window.WalletConnectProvider({
-                        rpc: { 143: MONAD_RPC },
-                        chainId: 143,
-                        qrcode: true
-                    });
-                    web3 = new Web3(provider);
                 } else {
-                    throw new Error('No wallet detected. Please install MetaMask or use a Web3 browser.');
+                    // No injected wallet (e.g. Safari/Chrome). Send the user into
+                    // MetaMask's in-app browser instead of failing.
+                    showDeeplinkFallback();
+                    return false;
                 }
             } catch (error) {
                 errorDiv.textContent = error.message;
@@ -412,14 +420,14 @@
             console.log('Attempting to connect wallet for userId:', userId);
 
             if (!await initializeWeb3()) {
-                setLoading(false);
+                // showDeeplinkFallback() already restyled the button when there is
+                // no injected wallet; don't clobber it with setLoading(false).
+                connectButton.disabled = false;
+                if (window.ethereum) connectButton.textContent = 'Connect Wallet';
                 return;
             }
 
             try {
-                if (provider.isWalletConnect) {
-                    await provider.enable();
-                }
                 const chainId = await web3.eth.getChainId();
                 console.log('Current chain ID (decimal):', chainId);
 
@@ -561,7 +569,8 @@
             }
         }
 
-        connectButton.addEventListener('click', connectWallet);
+        // onclick (not addEventListener) so showDeeplinkFallback can replace the handler
+        connectButton.onclick = connectWallet;
 
         window.addEventListener('load', async () => {
             if (userId) {

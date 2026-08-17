@@ -805,6 +805,34 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         support_link = '<a href="https://t.me/empowertourschat">EmpowerTours Chat</a>'
         await update.message.reply_text(f"Error: {error_msg}. Try again or contact support at {support_link}. 😅", parse_mode="HTML")
 
+DEFAULT_BASE_URL = "https://version1-production.up.railway.app"
+
+
+def signing_url(user_id: str) -> str:
+    """Plain https URL of the signing page for this user."""
+    base = (API_BASE_URL or DEFAULT_BASE_URL).rstrip('/')
+    return f"{base}/public/connect.html?userId={user_id}"
+
+
+def metamask_dapp_deeplink(url: str) -> str:
+    """MetaMask universal link that opens `url` inside MetaMask's in-app browser.
+
+    This is the only deeplink shape that helps us: MetaMask has no supported
+    deeplink for arbitrary calldata (an ERC-20 approve, createLocation, ...),
+    so we deeplink the *page* and let it push the tx via eth_sendTransaction.
+    """
+    return "https://metamask.app.link/dapp/" + url.replace('https://', '').replace('http://', '')
+
+
+def signing_keyboard(user_id: str, label: str = "🦊 Sign in MetaMask") -> InlineKeyboardMarkup:
+    """Tap-to-sign buttons: MetaMask in-app browser first, plain browser as fallback."""
+    url = signing_url(user_id)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, url=metamask_dapp_deeplink(url))],
+        [InlineKeyboardButton("🖥️ Open in Browser (Desktop)", url=url)],
+    ])
+
+
 async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     start_time = time.time()
@@ -816,18 +844,10 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         user_id = str(update.effective_user.id)
-        base_url = API_BASE_URL.rstrip('/')
-        connect_url = f"{base_url}/public/connect.html?userId={user_id}"
-        # Create MetaMask deeplink for mobile - strips https:// for the deeplink format
-        connect_url_for_deeplink = connect_url.replace('https://', '').replace('http://', '')
-        metamask_deeplink = f"https://metamask.app.link/dapp/{connect_url_for_deeplink}"
-        logger.info(f"Generated connect URL: {connect_url}, MetaMask deeplink: {metamask_deeplink}")
+        connect_url = signing_url(user_id)
+        logger.info(f"Generated connect URL: {connect_url}, MetaMask deeplink: {metamask_dapp_deeplink(connect_url)}")
         # Provide both mobile deeplink and desktop browser link
-        keyboard = [
-            [InlineKeyboardButton("📱 Open in MetaMask (Mobile)", url=metamask_deeplink)],
-            [InlineKeyboardButton("🖥️ Open in Browser (Desktop)", url=connect_url)]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        reply_markup = signing_keyboard(user_id, "📱 Open in MetaMask (Mobile)")
         message = (
             "<b>Connect Your Wallet</b>\n\n"
             "📱 <b>Mobile:</b> Tap 'Open in MetaMask' - this will launch MetaMask directly.\n\n"
@@ -1014,9 +1034,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await update.message.reply_text(
                 f"Photo received for Location #{location_id}!\n\n"
-                f"Please open https://version1-production.up.railway.app/public/connect.html?userId={user_id} "
-                f"to sign the transaction.\n"
-                f"This will mint your Climb Proof NFT and earn you 1-10 TOURS!"
+                f"Tap below to sign the transaction.\n"
+                f"This will mint your Climb Proof NFT and earn you 1-10 TOURS!",
+                reply_markup=signing_keyboard(user_id)
             )
 
             # Clear journal data
@@ -1236,7 +1256,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "photo_hash": photo_ipfs
                 })
                 await update.message.reply_text(
-                    f"Please open https://version1-production.up.railway.app/public/connect.html?userId={user_id} to sign the transaction for journal entry. Earn 1-10 TOURS!"
+                    "Tap below to sign the transaction for your journal entry. Earn 1-10 TOURS!",
+                    reply_markup=signing_keyboard(user_id)
                 )
                 await delete_journal_data(user_id)
                 logger.info(f"/handle_location processed for journal (V2), transaction built, took {time.time() - start_time:.2f} seconds")
@@ -1309,7 +1330,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "photo_hash": photo_hash
                     })
                     await update.message.reply_text(
-                        f"Please open https://version1-production.up.railway.app/public/connect.html?userId={user_id} to approve {location_fee / 10**18} WMON for climb creation."
+                        f"Tap below to approve {location_fee / 10**18} WMON for climb creation.",
+                        reply_markup=signing_keyboard(user_id, "🦊 Approve in MetaMask")
                     )
                     logger.info(f"/handle_location initiated WMON approval for user {user_id}, took {time.time() - start_time:.2f} seconds")
                     return
@@ -1366,7 +1388,8 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "entry_type": "climb"
                 })
                 await update.message.reply_text(
-                    f"Please open https://version1-production.up.railway.app/public/connect.html?userId={user_id} to sign the transaction for climb '{name}' ({difficulty}) using {location_fee / 10**18} WMON."
+                    f"Tap below to sign the transaction for climb '{name}' ({difficulty}) using {location_fee / 10**18} WMON.",
+                    reply_markup=signing_keyboard(user_id)
                 )
                 logger.info(f"/handle_location processed, V2 transaction built for user {user_id}, took {time.time() - start_time:.2f} seconds")
             except Exception as e:
@@ -1455,8 +1478,9 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
             })
             await update.message.reply_text(
-                f"Please open or refresh https://version1-production.up.railway.app/public/connect.html?userId={user_id} to approve {purchase_cost / 10**18} WMON for climb purchase using your wallet ([{checksum_address[:6]}...]({EXPLORER_URL}/address/{checksum_address})). After approval, you'll sign the purchase transaction.",
-                parse_mode="Markdown"
+                f"Tap below to approve {purchase_cost / 10**18} WMON for climb purchase using your wallet ([{checksum_address[:6]}...]({EXPLORER_URL}/address/{checksum_address})). After approval, you'll sign the purchase transaction.",
+                parse_mode="Markdown",
+                reply_markup=signing_keyboard(user_id, "🦊 Approve in MetaMask")
             )
             logger.info(f"/purchaseclimb initiated WMON approval for user {user_id}, took {time.time() - start_time:.2f} seconds")
             return
@@ -1470,8 +1494,9 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'gas_price': await w3.eth.gas_price
         })
         await update.message.reply_text(
-            f"Please open or refresh https://version1-production.up.railway.app/public/connect.html?userId={user_id} to sign the transaction for climb purchase ({purchase_cost / 10**18} WMON) using your wallet ([{checksum_address[:6]}...]({EXPLORER_URL}/address/{checksum_address})).",
-            parse_mode="Markdown"
+            f"Tap below to sign the transaction for climb purchase ({purchase_cost / 10**18} WMON) using your wallet ([{checksum_address[:6]}...]({EXPLORER_URL}/address/{checksum_address})).",
+            parse_mode="Markdown",
+            reply_markup=signing_keyboard(user_id)
         )
         await set_pending_wallet(user_id, {
             "awaiting_tx": True,
@@ -1740,6 +1765,7 @@ async def wrapmon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nonce = await w3.eth.get_transaction_count(checksum_address)
         gas_price = await w3.eth.gas_price
         tx = {
+            'from': checksum_address,
             'to': w3.to_checksum_address(WMON_ADDRESS),
             'value': amount_wei,
             'gas': 50000,
@@ -1749,20 +1775,21 @@ async def wrapmon(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'data': wmon_contract.encodeABI(fn_name='deposit')
         }
 
-        # Create MetaMask deeplink
-        tx_data_hex = tx['data']
-        metamask_url = f"https://metamask.app.link/send/{WMON_ADDRESS}@143?value={amount_wei}&data={tx_data_hex}"
-
-        keyboard = [
-            [InlineKeyboardButton("Sign in MetaMask", url=metamask_url)]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # MetaMask has no deeplink that carries calldata, so hand the tx to the
+        # signing page and deeplink the page itself (same flow as climb creation).
+        await set_pending_wallet(user_id, {
+            "awaiting_tx": True,
+            "tx_data": tx,
+            "wallet_address": checksum_address,
+            "timestamp": time.time(),
+            "entry_type": "wrap"
+        })
 
         await update.message.reply_text(
             f"Wrap {amount} MON to WMON:\n\n"
-            f"Click below to sign the transaction in MetaMask.\n"
+            f"Tap below to sign the transaction.\n"
             f"After signing, your WMON balance will update.",
-            reply_markup=reply_markup
+            reply_markup=signing_keyboard(user_id)
         )
         logger.info(f"/wrapmon transaction prepared for user {user_id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
@@ -1817,6 +1844,7 @@ async def unwrapmon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         gas_price = await w3.eth.gas_price
         tx_data = wmon_contract.encodeABI(fn_name='withdraw', args=[amount_wei])
         tx = {
+            'from': checksum_address,
             'to': w3.to_checksum_address(WMON_ADDRESS),
             'value': 0,
             'gas': 50000,
@@ -1826,19 +1854,21 @@ async def unwrapmon(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'data': tx_data
         }
 
-        # Create MetaMask deeplink
-        metamask_url = f"https://metamask.app.link/send/{WMON_ADDRESS}@143?data={tx_data}"
-
-        keyboard = [
-            [InlineKeyboardButton("Sign in MetaMask", url=metamask_url)]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # MetaMask has no deeplink that carries calldata, so hand the tx to the
+        # signing page and deeplink the page itself (same flow as climb creation).
+        await set_pending_wallet(user_id, {
+            "awaiting_tx": True,
+            "tx_data": tx,
+            "wallet_address": checksum_address,
+            "timestamp": time.time(),
+            "entry_type": "unwrap"
+        })
 
         await update.message.reply_text(
             f"Unwrap {amount} WMON to MON:\n\n"
-            f"Click below to sign the transaction in MetaMask.\n"
+            f"Tap below to sign the transaction.\n"
             f"After signing, your MON balance will update.",
-            reply_markup=reply_markup
+            reply_markup=signing_keyboard(user_id)
         )
         logger.info(f"/unwrapmon transaction prepared for user {user_id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
@@ -2055,6 +2085,10 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 action = f"Climb '{pending.get('name', 'Unknown')}' ({pending.get('difficulty', 'Unknown')}) created"
             elif entry_type == "journal":
                 action = "Journal entry submitted! You earned TOURS"
+            elif entry_type == "wrap":
+                action = "MON wrapped to WMON. Check /balance"
+            elif entry_type == "unwrap":
+                action = "WMON unwrapped to MON. Check /balance"
             await update.message.reply_text(f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🪙 {action}.", parse_mode="Markdown")
             if CHAT_HANDLE and TELEGRAM_TOKEN:
                 message = f"New activity by {escape_html(update.effective_user.username or update.effective_user.first_name)} on EmpowerTours! 🧗 <a href=\"{EXPLORER_URL}/tx/{tx_hash}\">Tx: {escape_html(tx_hash)}</a>"
@@ -2092,7 +2126,8 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "photo_hash": next_tx_data["photo_hash"]
                     })
                     await update.message.reply_text(
-                        f"WMON approval confirmed! Now open https://version1-production.up.railway.app/public/connect.html?userId={user_id} to sign the transaction for climb '{next_tx_data['name']}' ({next_tx_data['difficulty']})."
+                        f"WMON approval confirmed! Now tap below to sign the transaction for climb '{next_tx_data['name']}' ({next_tx_data['difficulty']}).",
+                        reply_markup=signing_keyboard(user_id)
                     )
                     logger.info(f"/handle_tx_hash processed WMON approval, next transaction built for user {user_id}, took {time.time() - start_time:.2f} seconds")
                     return
@@ -2114,7 +2149,8 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "timestamp": time.time()
                     })
                     await update.message.reply_text(
-                        f"WMON approval confirmed! Now open https://version1-production.up.railway.app/public/connect.html?userId={user_id} to sign the transaction for purchasing climb #{next_tx_data['location_id']}."
+                        f"WMON approval confirmed! Now tap below to sign the transaction for purchasing climb #{next_tx_data['location_id']}.",
+                        reply_markup=signing_keyboard(user_id)
                     )
                     logger.info(f"/handle_tx_hash processed WMON approval, next transaction built for purchase_climb, took {time.time() - start_time:.2f} seconds")
                     return
@@ -2566,6 +2602,10 @@ async def submit_tx(request: Request):
                         success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🪨 Climb '{pending.get('name', 'Unknown')}' ({pending.get('difficulty', 'Unknown')}) created!"
                     elif entry_type == "journal":
                         success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 📝 Journal entry added! You earned TOURS!"
+                    elif entry_type == "wrap":
+                        success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🔄 MON wrapped to WMON. Check /balance."
+                    elif entry_type == "unwrap":
+                        success_message = f"Transaction confirmed! [Tx: {tx_hash}]({EXPLORER_URL}/tx/{tx_hash}) 🔄 WMON unwrapped to MON. Check /balance."
                     if CHAT_HANDLE and TELEGRAM_TOKEN:
                         message = f"New activity by user {user_id} on EmpowerTours! 🧗 <a href=\"{EXPLORER_URL}/tx/{tx_hash}\">Tx: {escape_html(tx_hash)}</a>"
                         await send_notification(CHAT_HANDLE, message)
@@ -2604,7 +2644,8 @@ async def submit_tx(request: Request):
                             })
                             await application.bot.send_message(
                                 user_id,
-                                f"WMON approval confirmed! Now open https://version1-production.up.railway.app/public/connect.html?userId={user_id} to sign the transaction for climb '{next_tx_data['name']}' ({next_tx_data['difficulty']})."
+                                f"WMON approval confirmed! Now tap below to sign the transaction for climb '{next_tx_data['name']}' ({next_tx_data['difficulty']}).",
+                                reply_markup=signing_keyboard(user_id)
                             )
                             logger.info(f"/submit_tx processed WMON approval, next transaction built for user {user_id}, took {time.time() - start_time:.2f} seconds")
                             return {"status": "success"}
@@ -2627,7 +2668,8 @@ async def submit_tx(request: Request):
                             })
                             await application.bot.send_message(
                                 user_id,
-                                f"WMON approval confirmed! Now open https://version1-production.up.railway.app/public/connect.html?userId={user_id} to sign the transaction for purchasing climb #{next_tx_data['location_id']}."
+                                f"WMON approval confirmed! Now tap below to sign the transaction for purchasing climb #{next_tx_data['location_id']}.",
+                                reply_markup=signing_keyboard(user_id)
                             )
                             logger.info(f"/submit_tx processed WMON approval, next transaction built for purchase_climb, took {time.time() - start_time:.2f} seconds")
                             return {"status": "success"}
