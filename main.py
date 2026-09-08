@@ -811,6 +811,66 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 DEFAULT_BASE_URL = "https://version1-production.up.railway.app"
 
 
+
+# ---------------------------------------------------------------------------
+# Passport stamps
+#
+# A logged climb stamps the climber's EmpowerTours passport, so one document
+# records everything they did across the apps: artists discovered in the music
+# miniapp, and now places climbed here.
+#
+# The miniapp does the writing, not this bot. Only the passport contract's
+# owner() or oracle() may stamp, and both are keys the miniapp already holds —
+# putting a second copy of a privileged key on this host to save an HTTP call
+# would be a bad trade.
+#
+# ONE stamp per climber per crag, enforced on the miniapp side against the chain.
+# Climbing the same crag again is not a new place.
+#
+# Failure is deliberately silent to the user. The climb succeeded and is on
+# chain; a passport that has not caught up is not something to interrupt someone
+# with. It is logged, not surfaced.
+# ---------------------------------------------------------------------------
+PASSPORT_STAMP_URL = os.getenv(
+    "PASSPORT_STAMP_URL",
+    "https://fcempowertours-production-6551.up.railway.app/api/climb-stamp",
+)
+CLIMB_STAMP_SECRET = os.getenv("CLIMB_STAMP_SECRET")
+
+
+async def stamp_passport_for_climb(wallet_address: str, location_name: str,
+                                   latitude: float = 0.0, longitude: float = 0.0) -> None:
+    """Ask the miniapp to stamp this climber's passport. Never raises."""
+    if not CLIMB_STAMP_SECRET:
+        logger.info("[PassportStamp] CLIMB_STAMP_SECRET not set, skipping")
+        return
+    if not wallet_address or not location_name:
+        return
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+            async with session.post(
+                PASSPORT_STAMP_URL,
+                headers={"Authorization": f"Bearer {CLIMB_STAMP_SECRET}"},
+                json={
+                    "climber": wallet_address,
+                    "location": location_name,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
+            ) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status != 200:
+                    logger.warning(f"[PassportStamp] {resp.status}: {str(body)[:120]}")
+                elif body.get("stamped"):
+                    logger.info(f"[PassportStamp] {wallet_address[:10]} stamped for {location_name}")
+                elif body.get("needsPassport"):
+                    logger.info(f"[PassportStamp] {wallet_address[:10]} holds no passport")
+                elif body.get("alreadyStamped"):
+                    logger.info(f"[PassportStamp] {wallet_address[:10]} already stamped for {location_name}")
+    except Exception as e:
+        logger.warning(f"[PassportStamp] failed: {str(e)[:120]}")
+
+
 def confirmation_message(pending: dict, tx_hash: str) -> str:
     """Message for a freshly mined tx.
 
@@ -2113,6 +2173,13 @@ async def handle_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receipt = await w3.eth.get_transaction_receipt(tx_hash)
         if receipt and receipt.status:
             await update.message.reply_text(confirmation_message(pending, tx_hash), parse_mode="Markdown")
+            if pending.get("entry_type") == "journal":
+                await stamp_passport_for_climb(
+                    pending.get("wallet_address") or (await get_session(user_id) or {}).get("wallet_address", ""),
+                    pending.get("name") or pending.get("location_name") or "",
+                    float(pending.get("latitude") or 0),
+                    float(pending.get("longitude") or 0),
+                )
             if CHAT_HANDLE and TELEGRAM_TOKEN:
                 message = f"New activity by {escape_html(update.effective_user.username or update.effective_user.first_name)} on EmpowerTours! 🧗 <a href=\"{EXPLORER_URL}/tx/{tx_hash}\">Tx: {escape_html(tx_hash)}</a>"
                 await send_notification(CHAT_HANDLE, message)
@@ -2677,6 +2744,13 @@ async def submit_tx(request: Request):
                         message = f"New activity by user {user_id} on EmpowerTours! 🧗 <a href=\"{EXPLORER_URL}/tx/{tx_hash}\">Tx: {escape_html(tx_hash)}</a>"
                         await send_notification(CHAT_HANDLE, message)
                     await application.bot.send_message(user_id, success_message, parse_mode="Markdown")
+                    if pending.get("entry_type") == "journal":
+                        await stamp_passport_for_climb(
+                            pending.get("wallet_address") or (await get_session(user_id) or {}).get("wallet_address", ""),
+                            pending.get("name") or pending.get("location_name") or "",
+                            float(pending.get("latitude") or 0),
+                            float(pending.get("longitude") or 0),
+                        )
                     if pending.get("next_tx"):
                         next_tx_data = pending["next_tx"]
                         telegram_id = int(user_id)
