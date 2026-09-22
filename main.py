@@ -836,6 +836,10 @@ PASSPORT_STAMP_URL = os.getenv(
     "PASSPORT_STAMP_URL",
     "https://fcempowertours-production-6551.up.railway.app/api/climb-stamp",
 )
+CLIMB_PHOTO_URL = os.getenv(
+    "CLIMB_PHOTO_URL",
+    "https://fcempowertours-production-6551.up.railway.app/api/climb-photo",
+)
 CLIMB_STAMP_SECRET = os.getenv("CLIMB_STAMP_SECRET")
 
 
@@ -879,6 +883,66 @@ async def stamp_passport_for_climb(wallet_address: str, location_name: str,
                     logger.info(f"[PassportStamp] {wallet_address[:10]} already stamped for {location_name}")
     except Exception as e:
         logger.warning(f"[PassportStamp] failed: {str(e)[:120]}")
+
+
+async def pin_climb_photo(context: ContextTypes.DEFAULT_TYPE, file_id: str,
+                          label: str) -> str | None:
+    """Download the Telegram photo and pin it to IPFS. Returns `ipfs://<cid>`.
+
+    Returns None on any failure, and the caller MUST abort rather than fall back
+    to storing something else.
+
+    ## Why this exists
+
+    This used to be `w3.keccak(text=file_id)` - a hash of Telegram's opaque file
+    HANDLE, not of the image. The bytes were never fetched, and keccak is not
+    reversible, so nothing (including Telegram) could recover the photo from what
+    went on chain. `photoProofIPFS` has no setter, so every token minted that way
+    shows a blank tile in every wallet, permanently.
+
+    ## Why failure must abort
+
+    Minting is irreversible. Storing a placeholder when the pin fails would create
+    another permanently image-less NFT, which is strictly worse than asking the
+    climber to send the photo again.
+
+    The Pinata credential lives on fcempowertours, not here - see
+    `app/api/climb-photo/route.ts` there for the reasoning.
+    """
+    if not CLIMB_STAMP_SECRET:
+        logger.warning("[ClimbPhoto] CLIMB_STAMP_SECRET not set, cannot pin")
+        return None
+    try:
+        tg_file = await context.bot.get_file(file_id)
+        data = bytes(await tg_file.download_as_bytearray())
+        if not data:
+            logger.warning("[ClimbPhoto] Telegram returned an empty file")
+            return None
+
+        form = aiohttp.FormData()
+        form.add_field("file", data, filename=f"{label}.jpg",
+                       content_type="image/jpeg")
+        form.add_field("name", label)
+
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
+            async with session.post(
+                CLIMB_PHOTO_URL,
+                headers={"Authorization": f"Bearer {CLIMB_STAMP_SECRET}"},
+                data=form,
+            ) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status != 200:
+                    logger.warning(f"[ClimbPhoto] {resp.status}: {str(body)[:140]}")
+                    return None
+                uri = (body or {}).get("uri")
+                if not isinstance(uri, str) or not uri.startswith("ipfs://"):
+                    logger.warning(f"[ClimbPhoto] bad response: {str(body)[:140]}")
+                    return None
+                logger.info(f"[ClimbPhoto] pinned {label} -> {uri}")
+                return uri
+    except Exception as e:
+        logger.warning(f"[ClimbPhoto] failed: {str(e)[:140]}")
+        return None
 
 
 def confirmation_message(pending: dict, tx_hash: str) -> str:
@@ -1149,8 +1213,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         photo = update.message.photo[-1]
         file_id = photo.file_id
-        # Hash the file_id to fixed 32-byte hex (reduces gas/storage)
-        photo_hash = w3.keccak(text=file_id).hex()
+        # Pin the actual image. `photo_hash` keeps its name because it is what
+        # goes into photoProofIPFS, but it is now an ipfs:// URI - the one prefix
+        # ClimbingLocationsV2 rewrites into a fetchable https gateway URL.
+        photo_hash = await pin_climb_photo(context, file_id, f"climb-{user_id}")
+        if not photo_hash:
+            await update.message.reply_text(
+                "Could not save your photo, so nothing was minted. \U0001f4f7\n\n"
+                "Send it again in a moment - the photo is the proof, and an NFT "
+                "minted without one can never be fixed."
+            )
+            logger.warning(f"handle_photo aborted: pin failed for user {user_id}")
+            return
         journal = await get_journal_data(user_id)
         if journal and journal.get("awaiting_photo"):
             # Journal entry photo received - build transaction
