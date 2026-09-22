@@ -1081,6 +1081,25 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user has purchased this specific location
         has_access = location_id in [int(p) for p in purchases]
         if not has_access:
+            # A creator can never gain access to their own crag: purchaseLocation
+            # rejects them and addJournalEntry requires hasPurchased. Sending them
+            # to /purchaseclimb would be a dead end, so name the real situation.
+            try:
+                creator_address = (await contract.functions.getLocation(location_id)
+                                   .call({'gas': 500000}))[1]
+            except Exception:
+                creator_address = None
+            if creator_address and checksum_address.lower() == creator_address.lower():
+                await update.message.reply_text(
+                    f"You created climb #{location_id}, and the contract blocks a "
+                    f"creator from purchasing their own location - so journaling "
+                    f"there isn't possible, since it requires a purchase.\n\n"
+                    f"Use /findaclimb to log a climb someone else created."
+                )
+                logger.info(
+                    f"/journal refused: user {user_id} is the creator of location {location_id}"
+                )
+                return
             await update.message.reply_text(
                 f"You don't have access to location #{location_id}.\n"
                 f"Use /purchaseclimb {location_id} first to buy access."
@@ -1584,9 +1603,38 @@ async def purchase_climb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"/purchaseclimb failed: already purchased climb {location_id} for user {user_id}, took {time.time() - start_time:.2f} seconds")
             return
         # V2: Get location's WMON price from contract
+        # getLocation returns the ClimbLocation struct: [1] creator, [10] priceWmon.
+        # (The public locations() getter omits createdAt and returns 12 fields, not
+        # 13 - priceWmon is index 10 in both, but the tuples are NOT interchangeable.)
         location_data = await contract.functions.getLocation(location_id).call({'gas': 500000})
+        creator_address = location_data[1]
         purchase_cost = location_data[10]  # priceWmon field
         logger.info(f"Location #{location_id} price: {purchase_cost / 10**18} WMON")
+
+        # The contract refuses this outright:
+        #   require(loc.creator != msg.sender, "Cannot buy own location")
+        # Without this check the bot builds a transaction that can only revert, and
+        # the climber finds out from a MetaMask "likely to fail" warning - after
+        # paying gas for an approval that can never be spent. Six such reverts were
+        # mined on 2026-09-21/22 before this was diagnosed, each charged the FULL
+        # gas limit because Monad does not refund unused gas.
+        #
+        # This is a dead end, not a retry: a creator can never buy their own crag,
+        # and addJournalEntry requires hasPurchased, so they can never log a climb
+        # there either. Say so plainly instead of sending them to /purchaseclimb.
+        if creator_address and checksum_address.lower() == creator_address.lower():
+            await update.message.reply_text(
+                f"You created climb #{location_id}, so you can't buy it - the contract "
+                f"blocks a creator from purchasing their own location.\n\n"
+                f"That also means you can't journal a climb there, since journaling "
+                f"requires a purchase. Use a different wallet, or /findaclimb to find "
+                f"one someone else created."
+            )
+            logger.info(
+                f"/purchaseclimb refused: user {user_id} ({checksum_address}) is the "
+                f"creator of location {location_id}, took {time.time() - start_time:.2f} seconds"
+            )
+            return
         # Check WMON balance
         wmon_balance = await wmon_contract.functions.balanceOf(checksum_address).call({'gas': 500000})
         if wmon_balance < purchase_cost:
