@@ -900,10 +900,18 @@ def confirmation_message(pending: dict, tx_hash: str) -> str:
     return f"Transaction confirmed! {link} 🪙 Action completed successfully."
 
 
-def signing_url(user_id: str) -> str:
-    """Plain https URL of the signing page for this user."""
+def signing_url(user_id: str, force: bool = False) -> str:
+    """Plain https URL of the signing page for this user.
+
+    `force=True` appends ?force=1, which tells connect.html to skip its silent
+    reconnect and make the wallet re-prompt for an account. Deleting our session
+    does not revoke the wallet's own authorisation for this origin, so without
+    this flag reopening the link just re-reads the account the user is trying to
+    leave - /disconnect could never actually switch wallets.
+    """
     base = (API_BASE_URL or DEFAULT_BASE_URL).rstrip('/')
-    return f"{base}/public/connect.html?userId={user_id}"
+    url = f"{base}/public/connect.html?userId={user_id}"
+    return f"{url}&force=1" if force else url
 
 
 def metamask_dapp_deeplink(url: str) -> str:
@@ -916,9 +924,9 @@ def metamask_dapp_deeplink(url: str) -> str:
     return "https://metamask.app.link/dapp/" + url.replace('https://', '').replace('http://', '')
 
 
-def signing_keyboard(user_id: str, label: str = "🦊 Sign in MetaMask") -> InlineKeyboardMarkup:
+def signing_keyboard(user_id: str, label: str = "🦊 Sign in MetaMask", force: bool = False) -> InlineKeyboardMarkup:
     """Tap-to-sign buttons: MetaMask in-app browser first, plain browser as fallback."""
-    url = signing_url(user_id)
+    url = signing_url(user_id, force=force)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(label, url=metamask_dapp_deeplink(url))],
         [InlineKeyboardButton("🖥️ Open in Browser (Desktop)", url=url)],
@@ -969,7 +977,14 @@ async def disconnect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("No wallet is connected. Use /connectwallet to link one. 🔌")
             return
         await delete_session(user_id)
-        await update.message.reply_text("Wallet disconnected. Use /connectwallet to link a different one. 👋")
+        # Deleting our session does not revoke the wallet's own authorisation for
+        # the signing page's origin, so the plain link would silently reconnect
+        # the same account. Hand back a force link that re-prompts instead.
+        await update.message.reply_text(
+            "Wallet disconnected. 👋\n\n"
+            "Tap below to link a different one — you'll be asked which account to use.",
+            reply_markup=signing_keyboard(user_id, "🦊 Connect a different wallet", force=True),
+        )
         logger.info(f"/disconnect done for user {user_id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
         logger.error(f"Error in /disconnect for user {user_id}: {str(e)}")

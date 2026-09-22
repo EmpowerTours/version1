@@ -411,7 +411,13 @@
 
     <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
     <script>
-        const userId = new URLSearchParams(window.location.search).get('userId');
+        const params = new URLSearchParams(window.location.search);
+        const userId = params.get('userId');
+        // ?force=1 arrives from /disconnect. Deleting the bot-side session does
+        // not revoke this origin's authorisation in the wallet, so a plain
+        // reload silently reconnects the account the user is trying to leave.
+        // When set, skip every silent-reconnect path and re-prompt instead.
+        const forceReselect = params.get('force') === '1';
         const apiBaseUrl = 'https://version1-production.up.railway.app';
         const statusDiv = document.getElementById('status');
         const errorDiv = document.getElementById('error');
@@ -479,6 +485,18 @@
                     icons: [window.location.origin + '/public/IMG_3466.jpg']
                 }
             });
+            // EthereumProvider.init() restores a persisted wc@2 session from
+            // localStorage, and enable() on a live session resolves instantly
+            // with the old accounts and no modal. On a forced reselect that is
+            // exactly the wrong answer, so end the session first.
+            if (forceReselect && wc.session) {
+                try {
+                    await wc.disconnect();
+                    console.log('Forced reselect: ended previous WalletConnect session');
+                } catch (e) {
+                    console.warn('Could not end previous WalletConnect session:', e);
+                }
+            }
             wc.on('disconnect', () => {
                 console.log('WalletConnect session ended');
                 stopPolling();
@@ -582,6 +600,26 @@
                     setStatus('<span class="loading"></span>Approve the connection in your wallet...');
                     accounts = await provider.enable();
                 } else {
+                    // eth_requestAccounts resolves silently when this origin is
+                    // already authorised, handing back the account the user is
+                    // trying to leave. wallet_requestPermissions (EIP-2255) is
+                    // the documented way to make the wallet re-open its account
+                    // picker; eth_requestAccounts calls it internally only when
+                    // no permission exists yet.
+                    if (forceReselect) {
+                        try {
+                            await provider.request({
+                                method: 'wallet_requestPermissions',
+                                params: [{ eth_accounts: {} }],
+                            });
+                        } catch (permError) {
+                            // 4001 = the user dismissed the picker; respect that.
+                            // Anything else means no EIP-2255 support, so fall
+                            // through rather than dead-ending the connect.
+                            if (permError && permError.code === 4001) throw permError;
+                            console.warn('wallet_requestPermissions unavailable:', permError);
+                        }
+                    }
                     accounts = await provider.request({ method: 'eth_requestAccounts' });
                 }
                 if (!accounts || !accounts.length) {
@@ -805,7 +843,9 @@
                     // before that burns the server's one-shot tx_served flag on a
                     // sendTransaction that cannot succeed.
                     try {
-                        const accounts = await provider.request({ method: 'eth_accounts' });
+                        const accounts = forceReselect
+                            ? []
+                            : await provider.request({ method: 'eth_accounts' });
                         if (accounts && accounts.length) {
                             console.log('Already authorized:', accounts[0]);
                             connectedAccount = accounts[0];
@@ -817,7 +857,9 @@
                             await submitWallet(accounts[0]);
                             startPolling();
                         } else {
-                            setStatus('Tap Connect Wallet to continue');
+                            setStatus(forceReselect
+                                ? 'Tap Connect Wallet, then pick the account you want'
+                                : 'Tap Connect Wallet to continue');
                         }
                     } catch (e) {
                         console.warn('eth_accounts check failed:', e);
