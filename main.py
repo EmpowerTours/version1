@@ -9,6 +9,7 @@ from fastapi.responses import Response, FileResponse
 from contextlib import asynccontextmanager
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from telegram.constants import ChatAction
+from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 import aiohttp
 from web3 import AsyncWeb3
@@ -2478,8 +2479,24 @@ async def startup_event():
         await initialize_web3()
 
         # Initialize Telegram Application
-        application = Application.builder().token(TELEGRAM_TOKEN).build()
-        logger.info("Application initialized")
+        #
+        # HTTPXRequest defaults to 5s connect/read/write and 1s pool. That is too
+        # tight for a cold container: initialize() calls get_me(), and a single
+        # slow reply from api.telegram.org raised telegram.error.TimedOut, which
+        # aborted lifespan startup with "Application startup failed. Exiting."
+        # Railway then restarted into the same failure, so the whole HTTP service
+        # hung - the edge completed TLS with nothing listening behind it.
+        application = (
+            Application.builder()
+            .token(TELEGRAM_TOKEN)
+            .connect_timeout(20.0)
+            .read_timeout(20.0)
+            .write_timeout(20.0)
+            .pool_timeout(20.0)
+            .get_updates_read_timeout(30.0)
+            .build()
+        )
+        logger.info("Application built")
 
         # Register command handlers
         application.add_handler(CommandHandler("start", start))
@@ -2511,9 +2528,30 @@ async def startup_event():
 
         # monitor_events disabled - using Envio GraphQL for event indexing instead
 
-        # Initialize and start application
-        await application.initialize()
-        logger.info("Application initialized via initialize()")
+        # Initialize and start application.
+        #
+        # Retry rather than die: this is a network call to Telegram, and losing
+        # the race once must not take the service down until a human redeploys.
+        # Bounded (4 tries, ~14s of backoff) so a genuinely bad token or a real
+        # outage still fails loudly instead of looping forever.
+        init_attempts = 4
+        for attempt in range(1, init_attempts + 1):
+            try:
+                await application.initialize()
+                logger.info(f"Application initialized via initialize() on attempt {attempt}")
+                break
+            except TelegramError as init_error:
+                if attempt == init_attempts:
+                    logger.error(
+                        f"application.initialize() failed after {init_attempts} attempts: {init_error}"
+                    )
+                    raise
+                backoff = 2 ** attempt
+                logger.warning(
+                    f"application.initialize() attempt {attempt}/{init_attempts} failed "
+                    f"({type(init_error).__name__}: {init_error}); retrying in {backoff}s"
+                )
+                await asyncio.sleep(backoff)
 
         # Register the command menu so users get the "/" autocomplete + Menu button
         try:
