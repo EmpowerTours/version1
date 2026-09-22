@@ -889,7 +889,13 @@ def confirmation_message(pending: dict, tx_hash: str) -> str:
         difficulty = pending.get("difficulty") or "Unknown"
         return f"Transaction confirmed! {link} 🪨 Climb '{name}' ({difficulty}) created!"
     if entry_type == "journal":
-        return f"Transaction confirmed! {link} 📝 Journal entry added! You earned TOURS!"
+        # Do NOT claim a TOURS reward here. The climbing contract's rewardManager
+        # is 0x7fff35BB, which is paused and pays the retired V1 token, so
+        # distributeRewardWithMultiplier reverts and the try/catch swallows it -
+        # every Climb Proof minted so far has reward 0 stored in its metadata
+        # (verified: getClimbProof(1000001).reward == 0). Announce what actually
+        # happened; restore the reward line when a live manager is wired up.
+        return f"Transaction confirmed! {link} 📝 Journal entry added - Climb Proof NFT minted!"
     if entry_type == "purchase":
         location_id = pending.get("location_id")
         suffix = f" #{location_id}" if location_id else ""
@@ -1169,7 +1175,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"Photo received for Location #{location_id}!\n\n"
                 f"Tap below to sign the transaction.\n"
-                f"This will mint your Climb Proof NFT and earn you 1-10 TOURS!",
+                f"This will mint your Climb Proof NFT.",
                 reply_markup=signing_keyboard(user_id)
             )
 
@@ -1391,7 +1397,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "photo_hash": photo_ipfs
                 })
                 await update.message.reply_text(
-                    "Tap below to sign the transaction for your journal entry. Earn 1-10 TOURS!",
+                    "Tap below to sign the transaction for your journal entry.",
                     reply_markup=signing_keyboard(user_id)
                 )
                 await delete_journal_data(user_id)
