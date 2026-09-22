@@ -3,11 +3,14 @@ import os
 import signal
 import asyncio
 import time
+import hmac
+import hashlib
+import urllib.parse
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response, FileResponse
 from contextlib import asynccontextmanager
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyKeyboardMarkup, KeyboardButton, BotCommand
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, ReplyKeyboardMarkup, KeyboardButton, BotCommand, WebAppInfo, MenuButtonWebApp
 from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -836,6 +839,10 @@ PASSPORT_STAMP_URL = os.getenv(
     "PASSPORT_STAMP_URL",
     "https://fcempowertours-production-6551.up.railway.app/api/climb-stamp",
 )
+MINIAPP_URL = os.getenv(
+    "MINIAPP_URL",
+    "https://climb.empowertours.xyz/public/climb.html",
+)
 CLIMB_PHOTO_URL = os.getenv(
     "CLIMB_PHOTO_URL",
     "https://fcempowertours-production-6551.up.railway.app/api/climb-photo",
@@ -943,6 +950,38 @@ async def pin_climb_photo(context: ContextTypes.DEFAULT_TYPE, file_id: str,
     except Exception as e:
         logger.warning(f"[ClimbPhoto] failed: {str(e)[:140]}")
         return None
+
+
+async def miniapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Open the climbing radar - /miniapp
+
+    A web_app button, NOT a MetaMask deeplink. The deeplink opens MetaMask's own
+    browser, where Telegram.WebApp does not exist and LocationManager therefore
+    does not either - which would leave the radar with no GPS. The radar reads
+    the chain and needs no wallet, so it stays inside Telegram; signing still
+    goes out to MetaMask from connect.html when a climber actually buys or
+    journals.
+    """
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /miniapp from user {user_id}")
+    session = await get_session(user_id)
+    wallet = (session or {}).get("wallet_address") if session else None
+    note = (
+        "Your linked wallet decides which crags show as unlocked."
+        if wallet else
+        "No wallet linked yet - the radar still works, but every crag will read as locked. "
+        "Use /connectwallet to link one."
+    )
+    await update.message.reply_text(
+        f"\U0001f9ed <b>Climbing radar</b>\n\n"
+        f"Opens inside Telegram and uses your location to point you at crags.\n\n"
+        f"{note}",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("\U0001f9ed Open radar", web_app=WebAppInfo(url=MINIAPP_URL))],
+        ]),
+    )
 
 
 def confirmation_message(pending: dict, tx_hash: str) -> str:
@@ -2700,6 +2739,8 @@ async def startup_event():
         application.add_handler(CommandHandler("balance", balance))
         application.add_handler(CommandHandler("wrapmon", wrapmon))
         application.add_handler(CommandHandler("unwrapmon", unwrapmon))
+        application.add_handler(CommandHandler("miniapp", miniapp))
+        application.add_handler(CommandHandler("radar", miniapp))
         application.add_handler(CommandHandler("ping", ping))
         application.add_handler(CommandHandler("debug", debug_command))
         application.add_handler(CommandHandler("forcewebhook", forcewebhook))
@@ -2753,6 +2794,7 @@ async def startup_event():
                 BotCommand("journal", "Log a climb (earn NFT + TOURS)"),
                 BotCommand("mynfts", "View your NFTs"),
                 BotCommand("viewnft", "View an NFT's details"),
+                BotCommand("miniapp", "Open the climbing radar"),
                 BotCommand("balance", "Check MON / WMON / TOURS"),
                 BotCommand("wrapmon", "Convert MON to WMON"),
                 BotCommand("unwrapmon", "Convert WMON to MON"),
@@ -2760,6 +2802,15 @@ async def startup_event():
                 BotCommand("ping", "Check bot status"),
             ])
             logger.info("Bot command menu registered via set_my_commands")
+            # The blue Menu button opens the radar directly. Default scope, so
+            # every private chat gets it without a per-chat call.
+            try:
+                await application.bot.set_chat_menu_button(
+                    menu_button=MenuButtonWebApp(text="Radar", web_app=WebAppInfo(url=MINIAPP_URL))
+                )
+                logger.info(f"Chat menu button set to the mini app: {MINIAPP_URL}")
+            except Exception as menu_error:
+                logger.warning(f"Could not set chat menu button: {menu_error}")
         except Exception as e:
             logger.warning(f"Could not set command menu: {e}")
 
@@ -2858,6 +2909,128 @@ async def get_transaction(userId: str):
     except Exception as e:
         logger.error(f"Error in /get_transaction for user {userId}: {str(e)}, took {time.time() - start_time:.2f} seconds")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------------------------------------------------------
+# Telegram Mini App
+#
+# The radar is a READ-ONLY view, and that is the whole reason it can live inside
+# Telegram at all. Opening the MetaMask deeplink would hand us window.ethereum
+# but take away Telegram.WebApp - including LocationManager, which is the only
+# GPS source a Mini App has. You cannot have the wallet injected and the radar
+# on the same screen, so the radar asks for neither: crag coordinates are public
+# on chain, and `hasPurchased` needs an ADDRESS, not a signature.
+#
+# The address comes from the wallet the climber already linked with
+# /connectwallet, looked up from the session store by their Telegram id. Signing
+# (buy, journal) still goes through the existing MetaMask flow in connect.html.
+# ---------------------------------------------------------------------------
+
+
+def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> dict | None:
+    """Validate Mini App initData. Returns the parsed fields, or None.
+
+    Per core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app:
+    secret = HMAC_SHA256("WebAppData", bot_token), then compare
+    HMAC_SHA256(secret, data_check_string) with the supplied hash.
+
+    initData is attacker-controlled - it arrives from a browser - so this is the
+    only thing standing between a stranger and another climber's wallet address.
+    Reject by default: every failure path returns None rather than falling
+    through to a partial result.
+    """
+    if not init_data or not TELEGRAM_TOKEN:
+        return None
+    try:
+        pairs = urllib.parse.parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return None
+    fields = dict(pairs)
+    supplied = fields.pop("hash", None)
+    if not supplied:
+        return None
+
+    check = "\n".join(f"{k}={fields[k]}" for k in sorted(fields))
+    secret = hmac.new(b"WebAppData", TELEGRAM_TOKEN.encode(), hashlib.sha256).digest()
+    expected = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+    # compare_digest, not ==: a timing-variable compare on a MAC is the textbook
+    # way to let someone forge one byte at a time.
+    if not hmac.compare_digest(expected, supplied):
+        return None
+
+    try:
+        auth_date = int(fields.get("auth_date", "0"))
+    except ValueError:
+        return None
+    if auth_date <= 0 or (time.time() - auth_date) > max_age_seconds:
+        return None
+    return fields
+
+
+@app.post("/api/miniapp/state")
+async def miniapp_state(request: Request):
+    """Everything the radar needs, in one call: the climber's wallet and the crags."""
+    start_time = time.time()
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid payload")
+
+    fields = verify_telegram_init_data(str(data.get("initData") or ""))
+    if fields is None:
+        logger.warning("/api/miniapp/state rejected: initData failed validation")
+        raise HTTPException(status_code=401, detail="invalid initData")
+
+    try:
+        user = json.loads(fields.get("user") or "{}")
+        user_id = str(user.get("id") or "")
+    except Exception:
+        user_id = ""
+    if not user_id:
+        raise HTTPException(status_code=401, detail="no user in initData")
+
+    session = await get_session(user_id)
+    wallet = (session or {}).get("wallet_address") or None
+    checksum = w3.to_checksum_address(wallet) if (w3 and wallet) else None
+
+    crags = []
+    if w3 and contract:
+        try:
+            next_id = await contract.functions.nextLocationId().call({'gas': 500000})
+            ids = list(range(1, int(next_id)))
+            # Concurrent, because this is the request a climber waits on before
+            # the radar can draw anything.
+            rows = await asyncio.gather(
+                *[contract.functions.locations(i).call({'gas': 500000}) for i in ids],
+                return_exceptions=True,
+            )
+            owned = await asyncio.gather(
+                *[contract.functions.hasPurchased(i, checksum).call({'gas': 500000}) for i in ids],
+                return_exceptions=True,
+            ) if checksum else [False] * len(ids)
+
+            for idx, loc in zip(ids, rows):
+                if isinstance(loc, Exception) or not loc[11]:
+                    continue
+                bought = owned[idx - 1]
+                crags.append({
+                    "id": idx,
+                    "name": loc[4],
+                    "difficulty": loc[5],
+                    "lat": loc[6] / 1e6,
+                    "lon": loc[7] / 1e6,
+                    "priceWmon": str(loc[10]),
+                    "creator": loc[1],
+                    "purchased": bool(bought) if not isinstance(bought, Exception) else False,
+                })
+        except Exception as e:
+            logger.error(f"/api/miniapp/state chain read failed: {str(e)[:140]}")
+
+    logger.info(
+        f"/api/miniapp/state user {user_id}: wallet={'yes' if checksum else 'no'} "
+        f"crags={len(crags)}, took {time.time() - start_time:.2f}s"
+    )
+    return {"wallet": checksum, "crags": crags}
+
 
 @app.get("/api/config")
 async def api_config():

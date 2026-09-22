@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Climbing Radar</title>
+<link rel="icon" type="image/x-icon" href="/public/favicon.ico">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{
+    --bg:#0b0f10; --panel:#131a1c; --line:#1f2b2e;
+    --ink:#e8f1f2; --muted:#7f9298; --gold:#d8b46a;
+    --lock:#5c6b70; --open:#4fd1a5; --warn:#e2725b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  body{padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom));}
+  h1{font-size:15px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
+    font-weight:600;margin:0 0 14px;text-align:center}
+  /* ---- the scope ---------------------------------------------------------
+     Crag coordinates are PUBLIC on chain, so every blip here is drawn at its
+     real bearing and real distance. There is no hot/cold band and there must
+     not be one: a band is for hidden things, and inventing vagueness over
+     public data would be theatre. If a cache mechanic ever lands, it gets a
+     visibly different treatment.
+  ------------------------------------------------------------------------- */
+  .scope{position:relative;width:min(84vw,320px);aspect-ratio:1;margin:0 auto 18px;
+    border-radius:50%;background:
+      radial-gradient(circle at 50% 50%, rgba(79,209,165,.06), transparent 62%),
+      var(--panel);
+    border:1px solid var(--line);overflow:hidden}
+  .ring{position:absolute;border:1px solid var(--line);border-radius:50%;
+    top:50%;left:50%;transform:translate(-50%,-50%)}
+  .sweep{position:absolute;inset:0;border-radius:50%;
+    background:conic-gradient(from 0deg, rgba(79,209,165,.20), transparent 28%);
+    animation:spin 4s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.sweep{animation:none;opacity:.25}}
+  .me{position:absolute;top:50%;left:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;
+    border-radius:50%;background:var(--gold);box-shadow:0 0 10px rgba(216,180,106,.8)}
+  .blip{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;
+    transform-origin:center}
+  .blip.open{background:var(--open);box-shadow:0 0 10px rgba(79,209,165,.8)}
+  .blip.lock{background:transparent;border:1.5px dashed var(--lock)}
+  .blip b{position:absolute;top:14px;left:50%;transform:translateX(-50%);
+    font-size:9px;font-weight:600;white-space:nowrap;color:var(--muted)}
+  .edge{font-size:9px;color:var(--muted);position:absolute;letter-spacing:.1em}
+  /* ---- list -------------------------------------------------------------- */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+  .card .grow{flex:1;min-width:0}
+  .card h2{margin:0;font-size:15px;font-weight:600}
+  .card p{margin:3px 0 0;font-size:12px;color:var(--muted)}
+  .dist{font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;text-align:right}
+  .dist small{display:block;font-size:10px;color:var(--muted);font-weight:400}
+  .pill{font-size:10px;padding:2px 7px;border-radius:999px;letter-spacing:.06em;
+    text-transform:uppercase}
+  .pill.open{background:rgba(79,209,165,.14);color:var(--open)}
+  .pill.lock{background:rgba(92,107,112,.18);color:var(--lock)}
+  .note{font-size:12px;color:var(--muted);text-align:center;line-height:1.55;margin:14px 0}
+  .note.warn{color:var(--warn)}
+  button.act{width:100%;padding:13px;border-radius:11px;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);font-size:14px;font-weight:600}
+</style>
+</head>
+<body>
+<h1>Climbing Radar</h1>
+
+<div class="scope" id="scope">
+  <div class="sweep"></div>
+  <div class="ring" style="width:33%;height:33%"></div>
+  <div class="ring" style="width:66%;height:66%"></div>
+  <div class="ring" style="width:99%;height:99%"></div>
+  <div class="edge" style="top:6px;left:50%;transform:translateX(-50%)">N</div>
+  <div class="edge" style="bottom:6px;left:50%;transform:translateX(-50%)">S</div>
+  <div class="edge" style="left:6px;top:50%;transform:translateY(-50%)">W</div>
+  <div class="edge" style="right:6px;top:50%;transform:translateY(-50%)">E</div>
+  <div class="me"></div>
+</div>
+
+<div class="note" id="status">Starting…</div>
+<div id="list"></div>
+<div class="note" id="foot"></div>
+
+<script>
+(function(){
+  "use strict";
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var API = window.location.origin;           // same origin serves this page
+  var statusEl = document.getElementById('status');
+  var listEl   = document.getElementById('list');
+  var footEl   = document.getElementById('foot');
+  var scopeEl  = document.getElementById('scope');
+
+  var crags = [], wallet = null, fix = null, scale = 2000; // metres at rim
+
+  function say(msg, warn){ statusEl.textContent = msg; statusEl.className = warn ? 'note warn' : 'note'; }
+
+  /* Haversine. Good to well under a metre at these ranges. */
+  function distance(a, b){
+    var R=6371000, t=Math.PI/180;
+    var dLat=(b.lat-a.lat)*t, dLon=(b.lon-a.lon)*t;
+    var la=a.lat*t, lb=b.lat*t;
+    var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.sin(dLon/2)*Math.sin(dLon/2)*Math.cos(la)*Math.cos(lb);
+    return 2*R*Math.asin(Math.sqrt(h));
+  }
+  function bearing(a, b){
+    var t=Math.PI/180;
+    var la=a.lat*t, lb=b.lat*t, dLon=(b.lon-a.lon)*t;
+    var y=Math.sin(dLon)*Math.cos(lb);
+    var x=Math.cos(la)*Math.sin(lb)-Math.sin(la)*Math.cos(lb)*Math.cos(dLon);
+    return (Math.atan2(y,x)*180/Math.PI+360)%360;
+  }
+  function human(m){
+    if(m<1000) return Math.round(m)+' m';
+    return (m/1000).toFixed(m<10000?1:0)+' km';
+  }
+
+  function draw(){
+    // clear previous blips only; rings and cardinals are static markup
+    Array.prototype.slice.call(scopeEl.querySelectorAll('.blip')).forEach(function(n){ n.remove(); });
+    if(!fix || !crags.length) return;
+
+    var withGeo = crags.map(function(c){
+      return { c:c, d:distance(fix,c), b:bearing(fix,c) };
+    }).sort(function(p,q){ return p.d-q.d; });
+
+    // Rim tracks the farthest crag so something is always on screen, but never
+    // closer than 200m or the nearest blip sits on top of the centre dot.
+    scale = Math.max(200, withGeo[withGeo.length-1].d * 1.08);
+
+    withGeo.forEach(function(g){
+      var r = Math.min(g.d/scale, 1) * 49;              // percent of radius
+      var rad = (g.b-90) * Math.PI/180;
+      var el = document.createElement('div');
+      el.className = 'blip ' + (g.c.purchased ? 'open' : 'lock');
+      el.style.left = (50 + r*Math.cos(rad)) + '%';
+      el.style.top  = (50 + r*Math.sin(rad)) + '%';
+      el.innerHTML = '<b>' + escapeHtml(g.c.name).slice(0,12) + '</b>';
+      scopeEl.appendChild(el);
+    });
+
+    listEl.innerHTML = withGeo.map(function(g){
+      return '<div class="card">'
+        + '<div class="grow"><h2>' + escapeHtml(g.c.name) + '</h2>'
+        + '<p>' + escapeHtml(g.c.difficulty||'—') + ' · '
+        + '<span class="pill ' + (g.c.purchased?'open':'lock') + '">'
+        + (g.c.purchased?'unlocked':'locked') + '</span></p></div>'
+        + '<div class="dist">' + human(g.d) + '<small>' + compass(g.b) + '</small></div>'
+        + '</div>';
+    }).join('');
+
+    footEl.textContent = 'Rim ≈ ' + human(scale) + '. Locked crags still show — the map is free, access is not.';
+  }
+  function compass(b){
+    var pts=['N','NE','E','SE','S','SW','W','NW'];
+    return pts[Math.round(b/45)%8];
+  }
+  function escapeHtml(s){
+    return String(s==null?'':s).replace(/[&<>"']/g,function(ch){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+    });
+  }
+
+  /* --- chain state, via the bot (it already holds the ABI and the RPC) ----- */
+  function loadState(){
+    var initData = (tg && tg.initData) || '';
+    if(!initData){
+      say('Open this from the bot — it needs Telegram to identify you.', true);
+      return Promise.resolve();
+    }
+    return fetch(API + '/api/miniapp/state', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ initData: initData })
+    }).then(function(r){
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(d){
+      wallet = d.wallet; crags = d.crags || [];
+      if(!crags.length) say('No active crags yet. Create one with /buildaclimb.');
+      draw();
+    }).catch(function(e){
+      say('Could not load crags: ' + e.message, true);
+    });
+  }
+
+  /* --- position -----------------------------------------------------------
+     LocationManager is one-shot, so this polls. The cadence is a real choice:
+     too fast drains the battery and hammers nothing useful, since a climber
+     walks metres per second, not tens.
+  ------------------------------------------------------------------------ */
+  var POLL_MS = 5000;
+  function readPosition(){
+    if(!tg || !tg.LocationManager) return;
+    tg.LocationManager.getLocation(function(loc){
+      if(!loc){
+        say('Location access denied. Tap below to allow it.', true);
+        showSettings();
+        return;
+      }
+      fix = { lat: loc.latitude, lon: loc.longitude };
+      say(wallet
+        ? 'Tracking · ' + wallet.slice(0,6) + '…' + wallet.slice(-4)
+        : 'Tracking · no wallet linked, every crag reads as locked');
+      draw();
+    });
+  }
+  function showSettings(){
+    if(document.getElementById('settingsBtn')) return;
+    var b=document.createElement('button');
+    b.className='act'; b.id='settingsBtn'; b.textContent='Open location settings';
+    b.onclick=function(){ tg.LocationManager.openSettings(); };
+    footEl.parentNode.insertBefore(b, footEl);
+  }
+
+  function start(){
+    if(!tg){
+      say('This page is a Telegram Mini App. Open it from the bot with /miniapp.', true);
+      return;
+    }
+    tg.ready(); tg.expand();
+    if(tg.setHeaderColor) { try { tg.setHeaderColor('#0b0f10'); } catch(e){} }
+
+    loadState();
+
+    if(!tg.LocationManager){
+      say('This Telegram version has no location support — update Telegram to use the radar.', true);
+      return;
+    }
+    tg.LocationManager.init(function(){
+      if(!tg.LocationManager.isLocationAvailable){
+        say('Location services are unavailable on this device.', true);
+        return;
+      }
+      readPosition();
+      setInterval(readPosition, POLL_MS);
+    });
+    // Crag set changes rarely; refresh far less often than position.
+    setInterval(loadState, 60000);
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>
