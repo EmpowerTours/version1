@@ -1083,8 +1083,10 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             f"Logging climb for Location #{location_id}!\n\n"
-            f"Please send a photo of your climb. This will mint a Climb Proof NFT "
-            f"and reward you 1-10 TOURS tokens!"
+            f"Send a photo of your climb **with a caption** describing it - the "
+            f"caption is your journal entry and goes on chain, so a photo with no "
+            f"caption will be rejected.\n\n"
+            f"This mints a Climb Proof NFT."
         )
         await set_journal_data(user_id, {
             "location_id": location_id,
@@ -1124,11 +1126,30 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             location_id = journal.get("location_id")
             telegram_id = int(user_id)
 
+            # The contract requires 1-1000 bytes of entry text:
+            #   require(bytes(entryText).length > 0 && <= 1000, "Invalid entry text")
+            # This passed "" unconditionally, so EVERY journal entry ever attempted
+            # reverted with "Invalid entry text" - nextProofNFTId was still 1 and no
+            # Climb Proof NFT had ever been minted. The photo's caption is the entry.
+            entry_text = (update.message.caption or "").strip()
+            if not entry_text:
+                await update.message.reply_text(
+                    f"Almost! A journal entry needs a note as well as a photo.\n\n"
+                    f"Send the photo again with a caption describing the climb - "
+                    f"that caption is your journal entry and it is stored on chain."
+                )
+                logger.info(
+                    f"/handle_photo journal rejected: no caption for user {user_id}, "
+                    f"location {location_id}"
+                )
+                return
+            entry_text = entry_text[:1000]
+
             # Build V2 addJournalEntry transaction (free - rewards TOURS)
             # addJournalEntry(locationId, authorFid, authorTelegramId, entryText, photoIPFS)
             nonce = await w3.eth.get_transaction_count(checksum_address)
             tx = await contract.functions.addJournalEntry(
-                location_id, 0, telegram_id, "", photo_hash
+                location_id, 0, telegram_id, entry_text, photo_hash
             ).build_transaction({
                 'chainId': 143,
                 'from': checksum_address,
