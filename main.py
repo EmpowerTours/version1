@@ -947,10 +947,16 @@ async def connect_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         connect_url = signing_url(user_id)
         logger.info(f"Generated connect URL: {connect_url}, MetaMask deeplink: {metamask_dapp_deeplink(connect_url)}")
         # Provide both mobile deeplink and desktop browser link
-        reply_markup = signing_keyboard(user_id, "📱 Open in MetaMask (Mobile)")
+        # Always force the account picker. /connectwallet is an explicit request
+        # to choose a wallet, and without this the page silently reuses whatever
+        # account this origin was already granted - so a user with three accounts
+        # in MetaMask is only ever offered the first one they connected. For a
+        # first-time connect there is no permission yet, so this costs no extra
+        # prompt.
+        reply_markup = signing_keyboard(user_id, "📱 Open in MetaMask (Mobile)", force=True)
         message = (
             "<b>Connect Your Wallet</b>\n\n"
-            "📱 <b>Mobile:</b> Tap 'Open in MetaMask' - this will launch MetaMask directly.\n\n"
+            "📱 <b>Mobile:</b> Tap 'Open in MetaMask' - you'll be asked which account to use.\n\n"
             "🖥️ <b>Desktop:</b> Tap 'Open in Browser' and connect via MetaMask extension.\n\n"
             "After connecting, use /balance to check your status or /buildaclimb to create a climb. "
             "Need help? <a href=\"https://t.me/empowertourschat\">EmpowerTours Chat</a>"
