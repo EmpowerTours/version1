@@ -1053,18 +1053,22 @@ async def journal_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         checksum_address = w3.to_checksum_address(wallet_address)
 
-        # Check if user has any purchased climbs (read purchased location IDs from contract)
+        # Purchased location ids - used to list them, and to gate access below.
         purchases = await contract.functions.getUserPurchases(checksum_address).call({'gas': 500000})
-        if not purchases:
-            await update.message.reply_text(
-                "You need to purchase a climbing location first!\n\n"
-                "Use /findaclimb to browse available climbs, then /purchaseclimb [id] to buy access."
-            )
-            return
 
-        # Check if location_id was provided
+        # Only bail on an empty list when NO location was named. Bailing here
+        # unconditionally made the creator guard below unreachable: a creator has
+        # zero purchases and can never have any, so they got the generic "purchase
+        # first" message pointing at /purchaseclimb - which then refuses them for
+        # being the creator. Two commands, each deferring to the other. When a
+        # location IS named, fall through so the check below can name the real reason.
         if not context.args or len(context.args) < 1:
-            # Show purchased locations
+            if not purchases:
+                await update.message.reply_text(
+                    "You need to purchase a climbing location first!\n\n"
+                    "Use /findaclimb to browse available climbs, then /purchaseclimb [id] to buy access."
+                )
+                return
             message = "Usage: /journal [location_id]\n\nYour purchased climbs:\n"
             for loc_id in purchases[:10]:
                 message += f"  - Location #{loc_id}\n"
