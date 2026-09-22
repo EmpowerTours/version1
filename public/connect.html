@@ -418,7 +418,12 @@
         // reload silently reconnects the account the user is trying to leave.
         // When set, skip every silent-reconnect path and re-prompt instead.
         const forceReselect = params.get('force') === '1';
-        const apiBaseUrl = 'https://version1-production.up.railway.app';
+        // Same-origin by construction: this page is served by the very FastAPI app
+        // it calls. Hardcoding a host meant the page only worked on whichever
+        // domain was pinned here, so adding climb.empowertours.xyz would have
+        // pointed the railway copy at the new host mid-cutover (and vice versa).
+        // Deriving it means both domains work, and neither needs a redeploy.
+        const apiBaseUrl = window.location.origin;
         const statusDiv = document.getElementById('status');
         const errorDiv = document.getElementById('error');
         const deeplinkDiv = document.getElementById('deeplinkHelp');
