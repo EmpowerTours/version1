@@ -846,6 +846,15 @@ async def stamp_passport_for_climb(wallet_address: str, location_name: str,
         logger.info("[PassportStamp] CLIMB_STAMP_SECRET not set, skipping")
         return
     if not wallet_address or not location_name:
+        # Never return silently here. This guard hid the bug for the whole life of
+        # the integration: the journal flow never put the crag name into its
+        # pending dict, so every climb skipped the stamp leaving NO trace in the
+        # logs - not even a warning to grep for.
+        logger.warning(
+            f"[PassportStamp] skipped: wallet="
+            f"{'set' if wallet_address else 'MISSING'} location_name="
+            f"{'set' if location_name else 'MISSING'}"
+        )
         return
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
@@ -1186,13 +1195,36 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'gas': 500000,
             })
 
+            # stamp_passport_for_climb reads the crag's name and coordinates out
+            # of this dict. They were never written here, so location_name was
+            # always "" and the stamp returned at its guard - no climb has ever
+            # stamped a passport, although both sides of the integration exist and
+            # work. fcempowertours /api/climb-stamp REQUIRES `location` (400
+            # without it) and expects DECIMAL DEGREES, which it scales by 1e6
+            # itself; the contract stores them at 1e6, hence the division here.
+            try:
+                loc = await contract.functions.getLocation(location_id).call({'gas': 500000})
+                location_name = loc[4]
+                location_lat = loc[6] / 10**6
+                location_lon = loc[7] / 10**6
+            except Exception as loc_error:
+                logger.warning(
+                    f"[PassportStamp] could not read location {location_id} for the "
+                    f"stamp payload: {str(loc_error)[:120]}"
+                )
+                location_name, location_lat, location_lon = "", 0.0, 0.0
+
             await set_pending_wallet(user_id, {
                 "awaiting_tx": True,
                 "tx_data": tx,
                 "wallet_address": checksum_address,
                 "timestamp": time.time(),
                 "entry_type": "journal",
-                "photo_hash": photo_hash
+                "photo_hash": photo_hash,
+                "location_id": location_id,
+                "location_name": location_name,
+                "latitude": location_lat,
+                "longitude": location_lon
             })
 
             await update.message.reply_text(
