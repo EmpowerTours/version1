@@ -2997,10 +2997,14 @@ async def miniapp_state(request: Request):
         try:
             next_id = await contract.functions.nextLocationId().call({'gas': 500000})
             ids = list(range(1, int(next_id)))
-            # Concurrent, because this is the request a climber waits on before
-            # the radar can draw anything.
+            # getLocation, NOT the public `locations` mapping getter. The deployed
+            # struct has 13 fields (createdAt at [11], isActive at [12]) and the
+            # mapping getter's ABI in this file only describes 12, so every
+            # locations(i) read fails to DECODE. fetch_climbs_from_contract
+            # already carries this warning; using the mapping getter here made
+            # the radar report zero crags with "huerta" live on chain.
             rows = await asyncio.gather(
-                *[contract.functions.locations(i).call({'gas': 500000}) for i in ids],
+                *[contract.functions.getLocation(i).call({'gas': 500000}) for i in ids],
                 return_exceptions=True,
             )
             owned = await asyncio.gather(
@@ -3009,11 +3013,18 @@ async def miniapp_state(request: Request):
             ) if checksum else [False] * len(ids)
 
             for idx, loc in zip(ids, rows):
-                if isinstance(loc, Exception) or not loc[11]:
+                # Never skip silently. A swallowed decode error is exactly how
+                # this looked like "no crags exist" instead of "the read broke".
+                if isinstance(loc, Exception):
+                    logger.warning(f"/api/miniapp/state location {idx} read failed: {loc}")
+                    continue
+                if not loc[12]:  # isActive
                     continue
                 bought = owned[idx - 1]
+                if isinstance(bought, Exception):
+                    logger.warning(f"/api/miniapp/state hasPurchased({idx}) failed: {bought}")
                 crags.append({
-                    "id": idx,
+                    "id": loc[0],
                     "name": loc[4],
                     "difficulty": loc[5],
                     "lat": loc[6] / 1e6,

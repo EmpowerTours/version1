@@ -120,7 +120,19 @@
   function draw(){
     // clear previous blips only; rings and cardinals are static markup
     Array.prototype.slice.call(scopeEl.querySelectorAll('.blip')).forEach(function(n){ n.remove(); });
-    if(!fix || !crags.length) return;
+    // Two different empty states, and they are NOT the same thing. "no crags
+    // exist" and "we do not know where you are yet" were both showing as a
+    // blank scope, which reads as broken.
+    if(!crags.length){
+      listEl.innerHTML = '<div class="note">No active crags yet. Create one with /buildaclimb.</div>';
+      footEl.textContent = '';
+      return;
+    }
+    if(!fix){
+      listEl.innerHTML = '<div class="note">Waiting for your location\u2026</div>';
+      footEl.textContent = '';
+      return;
+    }
 
     var withGeo = crags.map(function(c){
       return { c:c, d:distance(fix,c), b:bearing(fix,c) };
@@ -179,7 +191,8 @@
       return r.json();
     }).then(function(d){
       wallet = d.wallet; crags = d.crags || [];
-      if(!crags.length) say('No active crags yet. Create one with /buildaclimb.');
+      // Status line belongs to POSITION. Crag state speaks through the list, or
+      // the two overwrite each other and whichever ran last wins.
       draw();
     }).catch(function(e){
       say('Could not load crags: ' + e.message, true);
