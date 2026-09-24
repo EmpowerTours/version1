@@ -43,6 +43,8 @@
     transform-origin:center}
   .blip.open{background:var(--open);box-shadow:0 0 10px rgba(79,209,165,.8)}
   .blip.lock{background:transparent;border:1.5px dashed var(--lock)}
+  .blip.mine{background:transparent;border:1.5px solid var(--gold);
+    box-shadow:0 0 8px rgba(216,180,106,.55)}
   .blip b{position:absolute;top:14px;left:50%;transform:translateX(-50%);
     font-size:9px;font-weight:600;white-space:nowrap;color:var(--muted)}
   .edge{font-size:9px;color:var(--muted);position:absolute;letter-spacing:.1em}
@@ -58,6 +60,7 @@
     text-transform:uppercase}
   .pill.open{background:rgba(79,209,165,.14);color:var(--open)}
   .pill.lock{background:rgba(92,107,112,.18);color:var(--lock)}
+  .pill.mine{background:rgba(216,180,106,.14);color:var(--gold)}
   .note{font-size:12px;color:var(--muted);text-align:center;line-height:1.55;margin:14px 0}
   .note.warn{color:var(--warn)}
   button.act{width:100%;padding:13px;border-radius:11px;border:1px solid var(--line);
@@ -134,19 +137,29 @@
       return;
     }
 
+    // Three states, not two. A creator can NEVER purchase their own crag -
+    // purchaseLocation rejects them outright - so showing "locked" told them to
+    // go buy the one thing the contract forbids. /purchaseclimb already refuses
+    // this by name; the radar has to agree with it.
+    var mineCount = 0;
     var withGeo = crags.map(function(c){
-      return { c:c, d:distance(fix,c), b:bearing(fix,c) };
+      var mine = !!(wallet && c.creator &&
+                    wallet.toLowerCase() === String(c.creator).toLowerCase());
+      if(mine) mineCount++;
+      return { c:c, mine:mine, d:distance(fix,c), b:bearing(fix,c) };
     }).sort(function(p,q){ return p.d-q.d; });
 
     // Rim tracks the farthest crag so something is always on screen, but never
     // closer than 200m or the nearest blip sits on top of the centre dot.
-    scale = Math.max(200, withGeo[withGeo.length-1].d * 1.08);
+    // 1.25 rather than 1.08: with a single crag the blip pinned at 92% of the
+    // radius and its label collided with the S cardinal. Measured on a phone.
+    scale = Math.max(200, withGeo[withGeo.length-1].d * 1.25);
 
     withGeo.forEach(function(g){
-      var r = Math.min(g.d/scale, 1) * 49;              // percent of radius
+      var r = Math.min(g.d/scale, 1) * 44;              // percent of radius
       var rad = (g.b-90) * Math.PI/180;
       var el = document.createElement('div');
-      el.className = 'blip ' + (g.c.purchased ? 'open' : 'lock');
+      el.className = 'blip ' + (g.mine ? 'mine' : g.c.purchased ? 'open' : 'lock');
       el.style.left = (50 + r*Math.cos(rad)) + '%';
       el.style.top  = (50 + r*Math.sin(rad)) + '%';
       el.innerHTML = '<b>' + escapeHtml(g.c.name).slice(0,12) + '</b>';
@@ -157,13 +170,16 @@
       return '<div class="card">'
         + '<div class="grow"><h2>' + escapeHtml(g.c.name) + '</h2>'
         + '<p>' + escapeHtml(g.c.difficulty||'—') + ' · '
-        + '<span class="pill ' + (g.c.purchased?'open':'lock') + '">'
-        + (g.c.purchased?'unlocked':'locked') + '</span></p></div>'
+        + '<span class="pill ' + (g.mine?'mine':g.c.purchased?'open':'lock') + '">'
+        + (g.mine?'yours':g.c.purchased?'unlocked':'locked') + '</span></p></div>'
         + '<div class="dist">' + human(g.d) + '<small>' + compass(g.b) + '</small></div>'
         + '</div>';
     }).join('');
 
-    footEl.textContent = 'Rim ≈ ' + human(scale) + '. Locked crags still show — the map is free, access is not.';
+    footEl.textContent = 'Rim ≈ ' + human(scale) + '. '
+      + (mineCount
+          ? 'Crags marked yours are ones you created — the contract does not let a creator buy their own.'
+          : 'Locked crags still show — the map is free, access is not.');
   }
   function compass(b){
     var pts=['N','NE','E','SE','S','SW','W','NW'];
