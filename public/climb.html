@@ -19,17 +19,21 @@
   h1{font-size:15px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
     font-weight:600;margin:0 0 14px;text-align:center}
   /* ---- the scope ---------------------------------------------------------
-     Crag coordinates are PUBLIC on chain, so every blip here is drawn at its
-     real bearing and real distance. There is no hot/cold band and there must
-     not be one: a band is for hidden things, and inventing vagueness over
-     public data would be theatre. If a cache mechanic ever lands, it gets a
-     visibly different treatment.
+     Crag coordinates are PUBLIC on chain, so every blip is drawn at its real
+     bearing and real distance. No hot/cold band: a band is for hidden things,
+     and manufacturing vagueness over public data would be theatre.
+
+     The rose ROTATES with the device when absolute orientation is available, so
+     "up" is the way you are facing and a blip at the top means walk forward.
+     North-up alone is not actionable on foot: you cannot use it without already
+     knowing which way north is, which is the thing you wanted the compass for.
   ------------------------------------------------------------------------- */
-  .scope{position:relative;width:min(84vw,320px);aspect-ratio:1;margin:0 auto 18px;
+  .scope{position:relative;width:min(84vw,320px);aspect-ratio:1;margin:0 auto 12px;
     border-radius:50%;background:
       radial-gradient(circle at 50% 50%, rgba(79,209,165,.06), transparent 62%),
       var(--panel);
     border:1px solid var(--line);overflow:hidden}
+  .rose{position:absolute;inset:0;transition:transform .2s linear}
   .ring{position:absolute;border:1px solid var(--line);border-radius:50%;
     top:50%;left:50%;transform:translate(-50%,-50%)}
   .sweep{position:absolute;inset:0;border-radius:50%;
@@ -39,15 +43,26 @@
   @media (prefers-reduced-motion:reduce){.sweep{animation:none;opacity:.25}}
   .me{position:absolute;top:50%;left:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;
     border-radius:50%;background:var(--gold);box-shadow:0 0 10px rgba(216,180,106,.8)}
-  .blip{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;
-    transform-origin:center}
+  /* Fixed to the SCREEN, not the rose: it marks the way you are pointing. */
+  .facing{position:absolute;top:3px;left:50%;transform:translateX(-50%);
+    width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;
+    border-bottom:10px solid var(--gold);opacity:.85}
+  .blip{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%}
   .blip.open{background:var(--open);box-shadow:0 0 10px rgba(79,209,165,.8)}
   .blip.lock{background:transparent;border:1.5px dashed var(--lock)}
   .blip.mine{background:transparent;border:1.5px solid var(--gold);
     box-shadow:0 0 8px rgba(216,180,106,.55)}
-  .blip b{position:absolute;top:14px;left:50%;transform:translateX(-50%);
-    font-size:9px;font-weight:600;white-space:nowrap;color:var(--muted)}
+  .blip b{position:absolute;top:14px;left:50%;font-size:9px;font-weight:600;
+    white-space:nowrap;color:var(--muted)}
   .edge{font-size:9px;color:var(--muted);position:absolute;letter-spacing:.1em}
+  /* ---- walk-this-way ------------------------------------------------------ */
+  .guide{display:flex;align-items:center;gap:14px;background:var(--panel);
+    border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin:0 0 12px}
+  .arrow{width:52px;height:52px;flex:none;transition:transform .2s linear}
+  .arrow svg{display:block}
+  .guide .txt{flex:1;min-width:0}
+  .guide .big{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+  .guide .sub{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.4}
   /* ---- list -------------------------------------------------------------- */
   .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
     padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
@@ -61,7 +76,7 @@
   .pill.open{background:rgba(79,209,165,.14);color:var(--open)}
   .pill.lock{background:rgba(92,107,112,.18);color:var(--lock)}
   .pill.mine{background:rgba(216,180,106,.14);color:var(--gold)}
-  .note{font-size:12px;color:var(--muted);text-align:center;line-height:1.55;margin:14px 0}
+  .note{font-size:12px;color:var(--muted);text-align:center;line-height:1.55;margin:12px 0}
   .note.warn{color:var(--warn)}
   button.act{width:100%;padding:13px;border-radius:11px;border:1px solid var(--line);
     background:var(--panel);color:var(--ink);font-size:14px;font-weight:600}
@@ -72,17 +87,33 @@
 
 <div class="scope" id="scope">
   <div class="sweep"></div>
-  <div class="ring" style="width:33%;height:33%"></div>
-  <div class="ring" style="width:66%;height:66%"></div>
-  <div class="ring" style="width:99%;height:99%"></div>
-  <div class="edge" style="top:6px;left:50%;transform:translateX(-50%)">N</div>
-  <div class="edge" style="bottom:6px;left:50%;transform:translateX(-50%)">S</div>
-  <div class="edge" style="left:6px;top:50%;transform:translateY(-50%)">W</div>
-  <div class="edge" style="right:6px;top:50%;transform:translateY(-50%)">E</div>
+  <div class="rose" id="rose">
+    <div class="ring" style="width:33%;height:33%"></div>
+    <div class="ring" style="width:66%;height:66%"></div>
+    <div class="ring" style="width:99%;height:99%"></div>
+    <div class="edge" style="top:6px;left:50%;transform:translateX(-50%)">N</div>
+    <div class="edge" style="bottom:6px;left:50%;transform:translateX(-50%)">S</div>
+    <div class="edge" style="left:6px;top:50%;transform:translateY(-50%)">W</div>
+    <div class="edge" style="right:6px;top:50%;transform:translateY(-50%)">E</div>
+  </div>
   <div class="me"></div>
+  <div class="facing" id="facing" style="display:none"></div>
 </div>
 
-<div class="note" id="status">Starting…</div>
+<div class="guide" id="guide" style="display:none">
+  <div class="arrow" id="arrow">
+    <svg width="52" height="52" viewBox="-26 -26 52 52" aria-hidden="true">
+      <circle r="24" fill="none" stroke="#1f2b2e" stroke-width="1"/>
+      <path d="M0 -17 L10 11 L0 4.5 L-10 11 Z" fill="#d8b46a"/>
+    </svg>
+  </div>
+  <div class="txt">
+    <div class="big" id="guideDist">&mdash;</div>
+    <div class="sub" id="guideSub"></div>
+  </div>
+</div>
+
+<div class="note" id="status">Starting&hellip;</div>
 <div id="list"></div>
 <div class="note" id="foot"></div>
 
@@ -90,17 +121,24 @@
 (function(){
   "use strict";
   var tg = window.Telegram && window.Telegram.WebApp;
-  var API = window.location.origin;           // same origin serves this page
+  var API = window.location.origin;
   var statusEl = document.getElementById('status');
   var listEl   = document.getElementById('list');
   var footEl   = document.getElementById('foot');
-  var scopeEl  = document.getElementById('scope');
+  var roseEl   = document.getElementById('rose');
+  var facingEl = document.getElementById('facing');
+  var guideEl  = document.getElementById('guide');
+  var arrowEl  = document.getElementById('arrow');
+  var gDist    = document.getElementById('guideDist');
+  var gSub     = document.getElementById('guideSub');
 
-  var crags = [], wallet = null, fix = null, scale = 2000; // metres at rim
+  var crags = [], wallet = null, fix = null, scale = 2000;
+  var heading = null;          // degrees clockwise from magnetic north; null = unknown
+  var headingSource = null;    // 'compass' | 'movement'
+  var accuracyM = null;
 
   function say(msg, warn){ statusEl.textContent = msg; statusEl.className = warn ? 'note warn' : 'note'; }
 
-  /* Haversine. Good to well under a metre at these ranges. */
   function distance(a, b){
     var R=6371000, t=Math.PI/180;
     var dLat=(b.lat-a.lat)*t, dLon=(b.lon-a.lon)*t;
@@ -119,28 +157,37 @@
     if(m<1000) return Math.round(m)+' m';
     return (m/1000).toFixed(m<10000?1:0)+' km';
   }
+  function compass(b){ return ['N','NE','E','SE','S','SW','W','NW'][Math.round(b/45)%8]; }
+  function norm(d){ return ((d % 360) + 360) % 360; }
+  function escapeHtml(s){
+    return String(s==null?'':s).replace(/[&<>"']/g,function(ch){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+    });
+  }
+
+  function applyRotation(){
+    // A blip is placed at its ABSOLUTE bearing inside the rose. Rotating the
+    // rose by -heading lands it at screen angle (bearing - heading), so the
+    // direction you are facing ends up at the top. Do not also subtract the
+    // heading per blip or the rotation is applied twice.
+    roseEl.style.transform = (heading==null) ? 'rotate(0deg)' : 'rotate(' + (-heading) + 'deg)';
+    facingEl.style.display = (heading==null) ? 'none' : 'block';
+  }
 
   function draw(){
-    // clear previous blips only; rings and cardinals are static markup
-    Array.prototype.slice.call(scopeEl.querySelectorAll('.blip')).forEach(function(n){ n.remove(); });
-    // Two different empty states, and they are NOT the same thing. "no crags
-    // exist" and "we do not know where you are yet" were both showing as a
-    // blank scope, which reads as broken.
+    Array.prototype.slice.call(roseEl.querySelectorAll('.blip')).forEach(function(n){ n.remove(); });
+
     if(!crags.length){
       listEl.innerHTML = '<div class="note">No active crags yet. Create one with /buildaclimb.</div>';
-      footEl.textContent = '';
+      footEl.textContent = ''; guideEl.style.display = 'none';
       return;
     }
     if(!fix){
-      listEl.innerHTML = '<div class="note">Waiting for your location\u2026</div>';
-      footEl.textContent = '';
+      listEl.innerHTML = '<div class="note">Waiting for your location&hellip;</div>';
+      footEl.textContent = ''; guideEl.style.display = 'none';
       return;
     }
 
-    // Three states, not two. A creator can NEVER purchase their own crag -
-    // purchaseLocation rejects them outright - so showing "locked" told them to
-    // go buy the one thing the contract forbids. /purchaseclimb already refuses
-    // this by name; the radar has to agree with it.
     var mineCount = 0;
     var withGeo = crags.map(function(c){
       var mine = !!(wallet && c.creator &&
@@ -149,22 +196,40 @@
       return { c:c, mine:mine, d:distance(fix,c), b:bearing(fix,c) };
     }).sort(function(p,q){ return p.d-q.d; });
 
-    // Rim tracks the farthest crag so something is always on screen, but never
-    // closer than 200m or the nearest blip sits on top of the centre dot.
-    // 1.25 rather than 1.08: with a single crag the blip pinned at 92% of the
-    // radius and its label collided with the S cardinal. Measured on a phone.
     scale = Math.max(200, withGeo[withGeo.length-1].d * 1.25);
 
     withGeo.forEach(function(g){
-      var r = Math.min(g.d/scale, 1) * 44;              // percent of radius
+      var r = Math.min(g.d/scale, 1) * 44;
       var rad = (g.b-90) * Math.PI/180;
       var el = document.createElement('div');
       el.className = 'blip ' + (g.mine ? 'mine' : g.c.purchased ? 'open' : 'lock');
       el.style.left = (50 + r*Math.cos(rad)) + '%';
       el.style.top  = (50 + r*Math.sin(rad)) + '%';
-      el.innerHTML = '<b>' + escapeHtml(g.c.name).slice(0,12) + '</b>';
-      scopeEl.appendChild(el);
+      // Counter-rotate the label so it stays upright as the rose turns.
+      var lbl = document.createElement('b');
+      lbl.textContent = String(g.c.name).slice(0,12);
+      lbl.style.transform = 'translateX(-50%) rotate(' + (heading==null?0:heading) + 'deg)';
+      el.appendChild(lbl);
+      roseEl.appendChild(el);
     });
+
+    // --- explicit "walk this way" for the nearest crag ----------------------
+    var near = withGeo[0];
+    guideEl.style.display = 'flex';
+    gDist.textContent = human(near.d) + ' · ' + near.c.name;
+    if(heading == null){
+      // With no heading an arrow would be a lie. Point it at the bearing and
+      // say plainly that it is relative to north, not to you.
+      arrowEl.style.transform = 'rotate(' + near.b + 'deg)';
+      gSub.textContent = 'Bearing ' + Math.round(near.b) + '° ' + compass(near.b)
+        + ' — no compass on this device, arrow points relative to north';
+    } else {
+      arrowEl.style.transform = 'rotate(' + norm(near.b - heading) + 'deg)';
+      gSub.textContent = (headingSource === 'movement'
+        ? 'Heading from your movement · '
+        : 'Walk toward the arrow · ')
+        + Math.round(near.b) + '° ' + compass(near.b);
+    }
 
     listEl.innerHTML = withGeo.map(function(g){
       return '<div class="card">'
@@ -181,17 +246,7 @@
           ? 'Crags marked yours are ones you created — the contract does not let a creator buy their own.'
           : 'Locked crags still show — the map is free, access is not.');
   }
-  function compass(b){
-    var pts=['N','NE','E','SE','S','SW','W','NW'];
-    return pts[Math.round(b/45)%8];
-  }
-  function escapeHtml(s){
-    return String(s==null?'':s).replace(/[&<>"']/g,function(ch){
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
-    });
-  }
 
-  /* --- chain state, via the bot (it already holds the ABI and the RPC) ----- */
   function loadState(){
     var initData = (tg && tg.initData) || '';
     if(!initData){
@@ -199,28 +254,31 @@
       return Promise.resolve();
     }
     return fetch(API + '/api/miniapp/state', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ initData: initData })
     }).then(function(r){
       if(!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     }).then(function(d){
       wallet = d.wallet; crags = d.crags || [];
-      // Status line belongs to POSITION. Crag state speaks through the list, or
-      // the two overwrite each other and whichever ran last wins.
       draw();
-    }).catch(function(e){
-      say('Could not load crags: ' + e.message, true);
-    });
+    }).catch(function(e){ say('Could not load crags: ' + e.message, true); });
+  }
+
+  function statusLine(){
+    var bits = [wallet ? wallet.slice(0,6) + '…' + wallet.slice(-4) : 'no wallet linked'];
+    // Accuracy is SHOWN, not hidden. A 2km fix and a 5m fix give very different
+    // distances, and without the number a coarse fix just looks like a bug.
+    if(accuracyM != null) bits.push('±' + Math.round(accuracyM) + ' m');
+    bits.push(heading == null ? 'no compass'
+            : headingSource === 'movement' ? 'heading from movement' : 'compass on');
+    say('Tracking · ' + bits.join(' · '));
   }
 
   /* --- position -----------------------------------------------------------
-     LocationManager is one-shot, so this polls. The cadence is a real choice:
-     too fast drains the battery and hammers nothing useful, since a climber
-     walks metres per second, not tens.
+     getLocation is one-shot, so this polls.
   ------------------------------------------------------------------------ */
-  var POLL_MS = 5000;
+  var POLL_MS = 4000;
   function readPosition(){
     if(!tg || !tg.LocationManager) return;
     tg.LocationManager.getLocation(function(loc){
@@ -230,9 +288,14 @@
         return;
       }
       fix = { lat: loc.latitude, lon: loc.longitude };
-      say(wallet
-        ? 'Tracking · ' + wallet.slice(0,6) + '…' + wallet.slice(-4)
-        : 'Tracking · no wallet linked, every crag reads as locked');
+      accuracyM = (typeof loc.horizontal_accuracy === 'number') ? loc.horizontal_accuracy : null;
+      // `course` is the direction of TRAVEL and only exists while actually
+      // moving. It is a fallback for a missing compass, never a replacement:
+      // it tells you where you WERE going, not where you are pointing.
+      if(headingSource !== 'compass' && typeof loc.course === 'number' && loc.course >= 0){
+        heading = loc.course; headingSource = 'movement'; applyRotation();
+      }
+      statusLine();
       draw();
     });
   }
@@ -244,15 +307,46 @@
     footEl.parentNode.insertBefore(b, footEl);
   }
 
+  /* --- compass ------------------------------------------------------------
+     need_absolute asks for orientation relative to MAGNETIC NORTH, the only
+     kind a compass can use. Some devices ignore it and return relative data
+     anyway, so `absolute` is checked rather than assumed — a relative heading
+     dressed up as "walk this way" would point confidently at nothing.
+  ------------------------------------------------------------------------ */
+  function startCompass(){
+    var d = tg && tg.DeviceOrientation;
+    if(!d || !d.start || !tg.onEvent) return;
+    tg.onEvent('deviceOrientationChanged', function(){
+      if(typeof d.alpha !== 'number') return;
+      if(!d.absolute){
+        // Relative only. Leave whatever the movement fallback gave us.
+        return;
+      }
+      // alpha is RADIANS (per the Bot API docs) and increases anticlockwise
+      // from north, so the direction the top of the device points is 360-alpha.
+      heading = norm(360 - (d.alpha * 180 / Math.PI));
+      headingSource = 'compass';
+      applyRotation();
+      statusLine();
+      draw();
+    });
+    tg.onEvent('deviceOrientationFailed', function(){
+      if(headingSource === 'compass'){ heading = null; headingSource = null; applyRotation(); }
+      statusLine();
+    });
+    try { d.start({ refresh_rate: 200, need_absolute: true }); } catch(e){}
+  }
+
   function start(){
     if(!tg){
       say('This page is a Telegram Mini App. Open it from the bot with /miniapp.', true);
       return;
     }
     tg.ready(); tg.expand();
-    if(tg.setHeaderColor) { try { tg.setHeaderColor('#0b0f10'); } catch(e){} }
+    if(tg.setHeaderColor){ try { tg.setHeaderColor('#0b0f10'); } catch(e){} }
 
     loadState();
+    startCompass();
 
     if(!tg.LocationManager){
       say('This Telegram version has no location support — update Telegram to use the radar.', true);
@@ -266,7 +360,6 @@
       readPosition();
       setInterval(readPosition, POLL_MS);
     });
-    // Crag set changes rarely; refresh far less often than position.
     setInterval(loadState, 60000);
   }
 
