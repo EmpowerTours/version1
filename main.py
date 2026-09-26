@@ -2884,7 +2884,15 @@ async def log_static_access(path: str, request: Request):
             logger.error(f"Static file not found: {file_path}")
             raise HTTPException(status_code=404, detail=f"File {path} not found in public directory")
     response = FileResponse(file_path)
-    response.headers["Cache-Control"] = "public, max-age=86400"
+    # HTML must revalidate. The mini app and the signing page are the two files
+    # that change, and a 24h immutable cache meant a phone kept serving the old
+    # one after a deploy - there is no way to force a reload from inside a
+    # Telegram Mini App, so the fix has to be on this side. Images and the icon
+    # keep the long cache; they are the reason it exists.
+    if path.lower().endswith((".html", ".json")):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    else:
+        response.headers["Cache-Control"] = "public, max-age=86400"
     response.headers["ETag"] = f"{os.path.getmtime(file_path)}"
     logger.info(f"/public/{path} served, took {time.time() - start_time:.2f} seconds")
     return response
