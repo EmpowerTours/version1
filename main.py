@@ -892,6 +892,48 @@ async def stamp_passport_for_climb(wallet_address: str, location_name: str,
         logger.warning(f"[PassportStamp] failed: {str(e)[:120]}")
 
 
+IPFS_GATEWAY = os.getenv(
+    "IPFS_GATEWAY",
+    "https://harlequin-used-hare-224.mypinata.cloud/ipfs/",
+)
+
+
+def photo_http_url(stored: str) -> str | None:
+    """Turn a stored photoProofIPFS/photoIPFS value into a fetchable https URL.
+
+    Returns None when there is nothing to show, and the caller must say so
+    rather than render a dead link.
+
+    Three shapes exist on chain and they are NOT interchangeable:
+
+      ipfs://<cid>   what pin_climb_photo writes now -> gateway + cid
+      <cid>          a bare CID, if anything ever wrote one -> gateway + cid
+      0x<64 hex>     LEGACY. keccak256 of a Telegram file_id, written before
+                     photos were uploaded at all. It identifies nothing and is
+                     not reversible, so no URL exists. Crag 1 and Climb Proof
+                     #1000001 are both this.
+
+    The legacy case is why this function exists. /viewnft was concatenating the
+    raw field onto a gateway root, which produced a 404 for the old hashes and -
+    once uploads started writing an ipfs:// prefix - would have produced
+    `https://ipfs.io/ipfs/ipfs://bafy...` for the new ones too.
+    """
+    v = (stored or "").strip()
+    if not v:
+        return None
+    if v.startswith("http://") or v.startswith("https://"):
+        return v
+    if v.startswith("ipfs://"):
+        v = v[len("ipfs://"):].lstrip("/")
+        return f"{IPFS_GATEWAY.rstrip('/')}/{v}" if v else None
+    # A 32-byte hex digest is the legacy marker, never a CID.
+    if v.startswith("0x") and len(v) == 66:
+        return None
+    if v.startswith("Qm") or v.startswith("baf"):
+        return f"{IPFS_GATEWAY.rstrip('/')}/{v}"
+    return None
+
+
 async def pin_climb_photo(context: ContextTypes.DEFAULT_TYPE, file_id: str,
                           label: str) -> str | None:
     """Download the Telegram photo and pin it to IPFS. Returns `ipfs://<cid>`.
@@ -1397,17 +1439,38 @@ async def viewclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         creator, name_, difficulty_ = location[1], location[4], location[5]
         lat, lon = location[6] / 1000000, location[7] / 1000000
-        has_photo = location[8] != ''
+        photo_url = photo_http_url(location[8])
+        # "Photo: Yes" meant "the field is non-empty", which is true of the
+        # legacy keccak hashes that point at nothing - and it offered no way to
+        # see one either way. Say which of the three states it is.
+        if photo_url:
+            photo_line = "   Photo: below \u2b07\ufe0f\n"
+        elif location[8]:
+            photo_line = "   Photo: stored before images were uploaded \u2014 not recoverable\n"
+        else:
+            photo_line = "   Photo: none\n"
         price_wmon = location[10] / 1e18
         message = (
             f"🧗 Climb ID: {loc_id} - {name_} ({difficulty_}) by [{creator[:6]}...]({EXPLORER_URL}/address/{creator})\n"
             f"   Location: {lat:.6f}, {lon:.6f}\n"
             f"   Map: https://www.google.com/maps?q={lat:.6f},{lon:.6f}\n"
-            f"   Photo: {'Yes' if has_photo else 'No'}\n"
+            f"{photo_line}"
             f"   💰 Access price: {price_wmon:.2f} WMON\n"
             f"   Created: {datetime.fromtimestamp(location[11]).strftime('%Y-%m-%d %H:%M:%S')}"
         )
-        await update.message.reply_text(message, parse_mode="Markdown")
+        if photo_url:
+            # Send the image itself - "how do I view it" should not have an
+            # answer that involves copying a URL. Falls back to text if the
+            # gateway is slow or the CID is unreachable.
+            try:
+                await update.message.reply_photo(photo=photo_url, caption=message, parse_mode="Markdown")
+            except Exception as photo_error:
+                logger.warning(f"/viewclimb could not send photo {photo_url}: {str(photo_error)[:120]}")
+                await update.message.reply_text(
+                    message + f"\n   [Open photo]({photo_url})", parse_mode="Markdown"
+                )
+        else:
+            await update.message.reply_text(message, parse_mode="Markdown")
         logger.info(f"/viewclimb details for {loc_id}, took {time.time() - start_time:.2f} seconds")
     except Exception as e:
         logger.error(f"Error in /viewclimb: {str(e)}")
@@ -2338,8 +2401,11 @@ async def viewnft(update: Update, context: ContextTypes.DEFAULT_TYPE):
             when = datetime.fromtimestamp(climbed_at).strftime('%Y-%m-%d %H:%M:%S') if climbed_at else "Unknown"
             message += f"Climbed: {when}\n"
             message += f"TOURS Rewarded: {tours:.2f}\n"
-            if photo_ipfs:
-                message += f"Photo: <a href=\"https://ipfs.io/ipfs/{photo_ipfs}\">View</a>\n"
+            proof_photo = photo_http_url(photo_ipfs)
+            if proof_photo:
+                message += f"Photo: <a href=\"{proof_photo}\">View</a>\n"
+            elif photo_ipfs:
+                message += "Photo: stored before images were uploaded \u2014 not recoverable\n"
 
         message += f"\nContract: <a href=\"{EXPLORER_URL}/token/{CLIMBING_V2_ADDRESS}?a={token_id}\">View on Explorer</a>"
         await update.message.reply_text(message, parse_mode="HTML")
