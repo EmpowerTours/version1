@@ -1026,6 +1026,72 @@ async def miniapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def setphoto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Attach an off-chain photo to a crag whose on-chain one is unusable.
+
+    Only the crag's CREATOR may do this, and the chain decides who that is -
+    there is no app-side notion of ownership to disagree with it.
+
+    Refuses when the chain already has a resolvable photo. An override exists to
+    repair a gap, not to let the app quietly show something different from what
+    the contract says.
+    """
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    user_id = str(update.effective_user.id)
+    logger.info(f"Received /setphoto from user {user_id}")
+    if not w3 or not contract:
+        await update.message.reply_text("Unavailable due to blockchain issues. Try again later!")
+        return
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: /setphoto <climb id>\n\n"
+                "Attaches a photo to a climb whose original was lost. "
+                "You must be the climb's creator."
+            )
+            return
+        loc_id = int(context.args[0])
+        session = await get_session(user_id)
+        wallet = (session or {}).get("wallet_address") if session else None
+        if not wallet:
+            await update.message.reply_text("Use /connectwallet first.")
+            return
+        try:
+            loc = await contract.functions.getLocation(loc_id).call({'gas': 500000})
+        except Exception:
+            await update.message.reply_text("Climb not found.")
+            return
+        if w3.to_checksum_address(wallet).lower() != str(loc[1]).lower():
+            await update.message.reply_text(
+                f"Only the creator of climb #{loc_id} can set its photo."
+            )
+            logger.info(f"/setphoto refused: user {user_id} is not the creator of {loc_id}")
+            return
+        url, source = resolve_location_photo(loc_id, loc[8])
+        if source == "chain":
+            await update.message.reply_text(
+                f"Climb #{loc_id} already has a photo stored on chain, which wins over "
+                f"anything set here. Nothing to repair."
+            )
+            return
+        await set_journal_data(user_id, {
+            "awaiting_setphoto": True,
+            "location_id": loc_id,
+            "timestamp": time.time(),
+        })
+        await update.message.reply_text(
+            f"Send the photo for climb #{loc_id} ({loc[4]}).\n\n"
+            f"It will be pinned to IPFS and shown in the app. Note it does NOT go "
+            f"on chain \u2014 the contract's photo field is write-once and already "
+            f"holds an unusable value, so the NFT artwork stays blank."
+        )
+    except ValueError:
+        await update.message.reply_text("Usage: /setphoto <climb id>")
+    except Exception as e:
+        logger.error(f"Error in /setphoto: {str(e)}")
+        await update.message.reply_text(f"Error: {html.escape(str(e))}")
+
+
 def confirmation_message(pending: dict, tx_hash: str) -> str:
     """Message for a freshly mined tx.
 
@@ -1307,6 +1373,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"handle_photo aborted: pin failed for user {user_id}")
             return
         journal = await get_journal_data(user_id)
+        if journal and journal.get("awaiting_setphoto"):
+            # Repairing a crag whose on-chain photo is unusable. Nothing is
+            # signed and nothing is minted: the pin already happened above, and
+            # this only records where the app should look.
+            loc_id = journal.get("location_id")
+            set_location_photo_override(loc_id, photo_hash, user_id)
+            await delete_journal_data(user_id)
+            await update.message.reply_text(
+                f"\u2705 Photo attached to climb #{loc_id}.\n\n"
+                f"It shows in /viewclimb {loc_id} and on the radar. The NFT artwork "
+                f"is unchanged \u2014 that reads the contract, which cannot be rewritten."
+            )
+            logger.info(f"/setphoto stored override for location {loc_id}: {photo_hash}")
+            return
         if journal and journal.get("awaiting_photo"):
             # Journal entry photo received - build transaction
             session = await get_session(user_id)
@@ -1439,16 +1519,19 @@ async def viewclimb(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         creator, name_, difficulty_ = location[1], location[4], location[5]
         lat, lon = location[6] / 1000000, location[7] / 1000000
-        photo_url = photo_http_url(location[8])
+        photo_url, photo_source = resolve_location_photo(loc_id, location[8])
         # "Photo: Yes" meant "the field is non-empty", which is true of the
         # legacy keccak hashes that point at nothing - and it offered no way to
         # see one either way. Say which of the three states it is.
-        if photo_url:
+        if photo_url and photo_source == "override":
+            photo_line = "   Photo: below \u2b07\ufe0f (added later \u2014 not the on-chain one)\n"
+        elif photo_url:
             photo_line = "   Photo: below \u2b07\ufe0f\n"
         elif location[8]:
-            photo_line = "   Photo: stored before images were uploaded \u2014 not recoverable\n"
+            photo_line = ("   Photo: lost \u2014 the creator can attach one with "
+                          f"/setphoto {loc_id}\n")
         else:
-            photo_line = "   Photo: none\n"
+            photo_line = f"   Photo: none \u2014 creator can add one with /setphoto {loc_id}\n"
         price_wmon = location[10] / 1e18
         message = (
             f"🧗 Climb ID: {loc_id} - {name_} ({difficulty_}) by [{creator[:6]}...]({EXPLORER_URL}/address/{creator})\n"
@@ -2624,6 +2707,78 @@ def _init_sessions_db():
         conn.close()
 
 
+def _init_location_photos_db():
+    """Off-chain photos for crags whose on-chain field points at nothing.
+
+    `photoProofIPFS` is write-once and has no setter, and the early bot stored
+    keccak256(telegram_file_id) there - a value that identifies nothing and
+    cannot be reversed. Crag 1 is stuck that way forever.
+
+    This table does NOT rewrite history and must not pretend to. It is a repair
+    layer the APP consults when the chain has nothing showable. tokenURI still
+    reads the chain, so an Access Badge for such a crag stays blank in a wallet;
+    only the bot and the radar gain a picture.
+    """
+    conn = sqlite3.connect(SESSIONS_DB_PATH)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS location_photos ("
+            "location_id INTEGER PRIMARY KEY, ipfs_uri TEXT NOT NULL, "
+            "set_by TEXT, set_at INTEGER)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_location_photo_override(location_id: int) -> str | None:
+    try:
+        conn = sqlite3.connect(SESSIONS_DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT ipfs_uri FROM location_photos WHERE location_id = ?",
+                (int(location_id),),
+            ).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+    except Exception as e:
+        logger.warning(f"[PhotoOverride] read failed for {location_id}: {str(e)[:100]}")
+        return None
+
+
+def set_location_photo_override(location_id: int, ipfs_uri: str, set_by: str) -> None:
+    conn = sqlite3.connect(SESSIONS_DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO location_photos (location_id, ipfs_uri, set_by, set_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(location_id) DO UPDATE SET "
+            "ipfs_uri=excluded.ipfs_uri, set_by=excluded.set_by, set_at=excluded.set_at",
+            (int(location_id), ipfs_uri, set_by, int(time.time())),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def resolve_location_photo(location_id: int, on_chain_value: str):
+    """(url, source) for a crag's photo. source is 'chain', 'override' or None.
+
+    The chain WINS when it holds something resolvable. An override only fills a
+    gap, so the app can never quietly contradict what the contract says - the
+    whole point is repairing crags that have nothing, not editing ones that do.
+    """
+    chain_url = photo_http_url(on_chain_value)
+    if chain_url:
+        return chain_url, "chain"
+    override = get_location_photo_override(location_id)
+    if override:
+        url = photo_http_url(override)
+        if url:
+            return url, "override"
+    return None, None
+
+
 def _load_sessions_from_db():
     """Populate the in-memory caches from disk on startup. Returns row count."""
     conn = sqlite3.connect(SESSIONS_DB_PATH)
@@ -2718,6 +2873,7 @@ async def startup_event():
         # wallet connections into the in-memory cache so restarts don't log users out.
         try:
             _init_sessions_db()
+            _init_location_photos_db()
             loaded = _load_sessions_from_db()
             logger.info(f"Session storage: SQLite at {SESSIONS_DB_PATH} ({loaded} sessions restored)")
         except Exception as e:
@@ -2805,6 +2961,7 @@ async def startup_event():
         application.add_handler(CommandHandler("balance", balance))
         application.add_handler(CommandHandler("wrapmon", wrapmon))
         application.add_handler(CommandHandler("unwrapmon", unwrapmon))
+        application.add_handler(CommandHandler("setphoto", setphoto))
         application.add_handler(CommandHandler("miniapp", miniapp))
         application.add_handler(CommandHandler("radar", miniapp))
         application.add_handler(CommandHandler("ping", ping))
@@ -2861,6 +3018,7 @@ async def startup_event():
                 BotCommand("mynfts", "View your NFTs"),
                 BotCommand("viewnft", "View an NFT's details"),
                 BotCommand("miniapp", "Open the climbing radar"),
+                BotCommand("setphoto", "Attach a photo to a climb you created"),
                 BotCommand("balance", "Check MON / WMON / TOURS"),
                 BotCommand("wrapmon", "Convert MON to WMON"),
                 BotCommand("unwrapmon", "Convert WMON to MON"),
@@ -3097,9 +3255,11 @@ async def miniapp_state(request: Request):
                 bought = owned[idx - 1]
                 if isinstance(bought, Exception):
                     logger.warning(f"/api/miniapp/state hasPurchased({idx}) failed: {bought}")
+                photo_url, _src = resolve_location_photo(idx, loc[8])
                 crags.append({
                     "id": loc[0],
                     "name": loc[4],
+                    "photo": photo_url,
                     "difficulty": loc[5],
                     "lat": loc[6] / 1e6,
                     "lon": loc[7] / 1e6,
